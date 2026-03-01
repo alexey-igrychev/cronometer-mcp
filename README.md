@@ -25,7 +25,7 @@ pip install cronometer-mcp
 Or install from source:
 
 ```bash
-git clone https://github.com/pshortino/cronometer-mcp.git
+git clone https://github.com/cphoskins/cronometer-mcp.git
 cd cronometer-mcp
 pip install -e .
 ```

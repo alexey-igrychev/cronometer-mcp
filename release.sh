@@ -58,4 +58,4 @@ git push origin main --tags
 echo ""
 echo "Pushed ${TAG} to origin."
 echo "Now create a GitHub Release from the tag to trigger PyPI publish:"
-echo "  https://github.com/pshortino/cronometer-mcp/releases/new?tag=${TAG}"
+echo "  https://github.com/cphoskins/cronometer-mcp/releases/new?tag=${TAG}"
