@@ -36,7 +36,10 @@ sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
 # Bump version in __init__.py
 sed -i "s/^__version__ = \".*\"/__version__ = \"${VERSION}\"/" cronometer_mcp/__init__.py
 
-# Verify both files were updated
+# Bump version in server.json (top-level and package version)
+sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" server.json
+
+# Verify all files were updated
 if ! grep -q "version = \"${VERSION}\"" pyproject.toml; then
     echo "Error: Failed to update pyproject.toml"
     exit 1
@@ -45,12 +48,17 @@ if ! grep -q "__version__ = \"${VERSION}\"" cronometer_mcp/__init__.py; then
     echo "Error: Failed to update __init__.py"
     exit 1
 fi
+if ! grep -q "\"version\": \"${VERSION}\"" server.json; then
+    echo "Error: Failed to update server.json"
+    exit 1
+fi
 
 echo "Bumped version to ${VERSION}"
 echo "  pyproject.toml: version = \"${VERSION}\""
 echo "  __init__.py:    __version__ = \"${VERSION}\""
+echo "  server.json:    version: \"${VERSION}\""
 
-git add pyproject.toml cronometer_mcp/__init__.py
+git add pyproject.toml cronometer_mcp/__init__.py server.json
 git commit -m "Bump version to ${VERSION}"
 git tag "$TAG"
 git push origin main --tags
