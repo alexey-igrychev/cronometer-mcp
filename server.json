@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cphoskins/cronometer",
+  "description": "MCP server for Cronometer nutrition data — pull food logs, macros, and micronutrients via the Model Context Protocol",
+  "repository": {
+    "url": "https://github.com/cphoskins/cronometer-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "cronometer-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CRONOMETER_USERNAME",
+          "description": "Your Cronometer account email",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "CRONOMETER_PASSWORD",
+          "description": "Your Cronometer account password",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "CRONOMETER_DATA_DIR",
+          "description": "Directory for sync output (defaults to ~/.local/share/cronometer-mcp/)",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

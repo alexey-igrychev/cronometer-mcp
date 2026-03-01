@@ -29,9 +29,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pshortino/cronometer-mcp"
-Repository = "https://github.com/pshortino/cronometer-mcp"
-Issues = "https://github.com/pshortino/cronometer-mcp/issues"
+Homepage = "https://github.com/cphoskins/cronometer-mcp"
+Repository = "https://github.com/cphoskins/cronometer-mcp"
+Issues = "https://github.com/cphoskins/cronometer-mcp/issues"
 
 [project.scripts]
 cronometer-mcp = "cronometer_mcp.server:main"

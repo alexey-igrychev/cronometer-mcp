@@ -1,5 +1,7 @@
 # cronometer-mcp
 
+<!-- mcp-name: io.github.cphoskins/cronometer -->
+
 An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that provides access to your [Cronometer](https://cronometer.com/) nutrition data. Pull detailed food logs, daily macro/micro summaries, and raw CSV exports directly into Claude, Cursor, or any MCP-compatible client.
 
 **Requires a Cronometer Gold account** (or any paid tier that supports web login).
