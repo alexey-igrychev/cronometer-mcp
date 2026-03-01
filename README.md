@@ -1,0 +1,177 @@
+# cronometer-mcp
+
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that provides access to your [Cronometer](https://cronometer.com/) nutrition data. Pull detailed food logs, daily macro/micro summaries, and raw CSV exports directly into Claude, Cursor, or any MCP-compatible client.
+
+**Requires a Cronometer Gold account** (or any paid tier that supports web login).
+
+## Features
+
+- **Food log** — individual food entries with full macro and micronutrient breakdown
+- **Daily nutrition** — daily calorie, protein, carb, fat, and fiber totals
+- **Micronutrients** — detailed vitamin/mineral breakdown with period averages
+- **Raw CSV export** — servings, daily summary, exercises, biometrics, or notes
+- **Sync to disk** — download JSON exports and generate a markdown food log
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install cronometer-mcp
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/pshortino/cronometer-mcp.git
+cd cronometer-mcp
+pip install -e .
+```
+
+### 2. Set credentials
+
+```bash
+export CRONOMETER_USERNAME="your@email.com"
+export CRONOMETER_PASSWORD="your-password"
+```
+
+Or add them to a `.env` file in your project root (if your MCP client supports it).
+
+### 3. Configure your MCP client
+
+#### Claude Code (`.mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "cronometer": {
+      "command": "cronometer-mcp",
+      "env": {
+        "CRONOMETER_USERNAME": "your@email.com",
+        "CRONOMETER_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+#### Claude Desktop (`claude_desktop_config.json`)
+
+```json
+{
+  "mcpServers": {
+    "cronometer": {
+      "command": "cronometer-mcp",
+      "env": {
+        "CRONOMETER_USERNAME": "your@email.com",
+        "CRONOMETER_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+If you installed from source with `pip install -e .`, you can also use the full Python path:
+
+```json
+{
+  "command": "/path/to/venv/bin/python",
+  "args": ["-m", "cronometer_mcp.server"]
+}
+```
+
+## Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_food_log` | Individual food entries with macros + micros for a date range |
+| `get_daily_nutrition` | Daily macro totals (calories, protein, carbs, fat, fiber) |
+| `get_micronutrients` | Detailed vitamin/mineral breakdown with period averages |
+| `export_raw_csv` | Raw CSV export for any data type (servings, exercises, biometrics, etc.) |
+| `sync_cronometer` | Download JSON exports + generate food-log.md to disk |
+
+### Tool Parameters
+
+All date parameters use `YYYY-MM-DD` format:
+
+- `get_food_log(start_date?, end_date?)` — defaults to today
+- `get_daily_nutrition(start_date?, end_date?)` — defaults to last 7 days
+- `get_micronutrients(start_date?, end_date?)` — defaults to last 7 days
+- `export_raw_csv(export_type, start_date?, end_date?)` — type is one of: `servings`, `daily_summary`, `exercises`, `biometrics`, `notes`
+- `sync_cronometer(start_date?, end_date?, days?, diet_label?)` — `days` defaults to 14; `diet_label` is optional text for the markdown header
+
+### Sync Output
+
+The `sync_cronometer` tool saves files to `~/.local/share/cronometer-mcp/` by default. Override with the `CRONOMETER_DATA_DIR` environment variable:
+
+```bash
+export CRONOMETER_DATA_DIR="/path/to/your/project/data/cronometer"
+```
+
+Output files:
+- `exports/servings_{start}_{end}.json`
+- `exports/daily_summary_{start}_{end}.json`
+- `exports/servings_latest.json`
+- `exports/daily_summary_latest.json`
+- `food-log.md`
+
+## How It Works
+
+Cronometer does not have a public API for individual users. This server uses the same GWT-RPC (Google Web Toolkit Remote Procedure Call) protocol that the Cronometer web app uses internally:
+
+1. Fetches the login page to get an anti-CSRF token
+2. POSTs credentials to authenticate
+3. Calls GWT-RPC `authenticate` to get a user ID
+4. Calls GWT-RPC `generateAuthorizationToken` for short-lived export tokens
+5. Downloads CSV exports using the token
+
+### GWT Magic Values
+
+The GWT protocol uses a permutation hash and header value that are baked into each Cronometer web deploy. These values are hardcoded in the client and **may break when Cronometer pushes a new build**.
+
+Current values (as of February 2026):
+- Permutation: `7B121DC5483BF272B1BC1916DA9FA963`
+- Header: `2D6A926E3729946302DC68073CB0D550`
+
+If authentication starts failing with GWT errors, these values likely need updating. You can find the current values by:
+
+1. Opening Cronometer in your browser
+2. Going to Developer Tools → Network tab
+3. Looking for requests to `cronometer.com/cronometer/app`
+4. Checking the `x-gwt-permutation` header and the payload structure
+
+You can override them via the `CronometerClient` constructor:
+
+```python
+from cronometer_mcp import CronometerClient
+
+client = CronometerClient(
+    gwt_permutation="NEW_PERMUTATION_HASH",
+    gwt_header="NEW_HEADER_VALUE",
+)
+```
+
+## Python API
+
+You can also use the client directly in Python:
+
+```python
+from datetime import date, timedelta
+from cronometer_mcp import CronometerClient
+
+client = CronometerClient()  # reads from env vars
+
+# Get today's food log
+foods = client.get_food_log()
+
+# Get last 7 days of daily summaries
+start = date.today() - timedelta(days=7)
+summaries = client.get_daily_summary(start)
+
+# Raw CSV export
+csv_text = client.export_raw("exercises", start, date.today())
+```
+
+## License
+
+MIT
