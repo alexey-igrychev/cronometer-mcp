@@ -84,7 +84,7 @@ GWT_UPDATE_DIARY = (
     "com.cronometer.shared.entries.models.Day/782579793|"
     "1|2|3|4|3|5|6|7|8|{user_id}|9|10|1|1|11|12|"
     "{day}|{month}|{year}|{quantity}|{diary_group}|0|{measure_id}|0|0|"
-    "{weight_grams}|{food_source_id}|A|{food_id}|0|0|"
+    "{weight_grams}|{food_source_id}|A|{food_id}|0|1|"
 )
 
 GWT_REMOVE_SERVING = (
@@ -788,10 +788,9 @@ class CronometerClient:
             food_id: Numeric food ID from Cronometer's food database.
             food_source_id: Food source ID (identifies the database the food
                            comes from, e.g. USDA, custom).
-            measure_id: Measure/unit ID. For NCCDB foods, use the measure_id
-                        from getFood. For CRDB/custom foods, use
-                        UNIVERSAL_MEASURE_ID (124399) to avoid ghost entries.
-                        Pass 0 to auto-select UNIVERSAL_MEASURE_ID.
+            measure_id: Measure/unit ID. Pass 0 to auto-select
+                        UNIVERSAL_MEASURE_ID (124399). The diary_group is
+                        encoded into the high 16 bits automatically.
             quantity: Serving quantity. When using UNIVERSAL_MEASURE_ID, set
                       this equal to weight_grams (since the measure is g-based).
             weight_grams: Weight of the serving in grams.
@@ -809,6 +808,13 @@ class CronometerClient:
         if measure_id == 0:
             measure_id = UNIVERSAL_MEASURE_ID
 
+        # Encode diary_group into the measure_id's high 16 bits.
+        # The Cronometer server reads the diary group from this encoding:
+        #   1=Breakfast, 2=Lunch, 3=Dinner, 4=Snacks.
+        # Strip any existing group from the high bits, then apply the requested one.
+        measure_base = measure_id & 0xFFFF
+        encoded_measure = (diary_group << 16) | measure_base
+
         # Cronometer sends integer quantities without a decimal point
         quantity_str = str(int(quantity)) if quantity == int(quantity) else str(quantity)
         weight_str = str(int(weight_grams)) if weight_grams == int(weight_grams) else str(weight_grams)
@@ -822,8 +828,8 @@ class CronometerClient:
             .replace("{month}", str(day.month))
             .replace("{year}", str(day.year))
             .replace("{quantity}", quantity_str)
-            .replace("{diary_group}", str(diary_group))
-            .replace("{measure_id}", str(measure_id))
+            .replace("{diary_group}", "1")
+            .replace("{measure_id}", str(encoded_measure))
             .replace("{weight_grams}", weight_str)
             .replace("{food_source_id}", str(food_source_id))
             .replace("{food_id}", str(food_id))
