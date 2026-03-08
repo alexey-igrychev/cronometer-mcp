@@ -90,6 +90,12 @@ If you installed from source with `pip install -e .`, you can also use the full 
 | `get_daily_nutrition` | Daily macro totals (calories, protein, carbs, fat, fiber) |
 | `get_micronutrients` | Detailed vitamin/mineral breakdown with period averages |
 | `export_raw_csv` | Raw CSV export for any data type (servings, exercises, biometrics, etc.) |
+| `search_foods` | Search the Cronometer food database |
+| `get_food_details` | Get full nutrition info and measure IDs for a food |
+| `add_food_entry` | Add a food entry to the diary |
+| `remove_food_entry` | Remove a food entry from the diary |
+| `get_macro_targets` | Get current daily macro targets (or weekly schedule with `target_date="all"`) |
+| `set_macro_targets` | Update daily macro targets (partial updates supported) |
 | `sync_cronometer` | Download JSON exports + generate food-log.md to disk |
 
 ### Tool Parameters
@@ -100,6 +106,8 @@ All date parameters use `YYYY-MM-DD` format:
 - `get_daily_nutrition(start_date?, end_date?)` — defaults to last 7 days
 - `get_micronutrients(start_date?, end_date?)` — defaults to last 7 days
 - `export_raw_csv(export_type, start_date?, end_date?)` — type is one of: `servings`, `daily_summary`, `exercises`, `biometrics`, `notes`
+- `get_macro_targets(target_date?)` — defaults to today; pass `"all"` for weekly schedule
+- `set_macro_targets(protein_grams?, fat_grams?, carbs_grams?, calories?, target_date?, template_name?)` — reads current targets first, merges provided values
 - `sync_cronometer(start_date?, end_date?, days?, diet_label?)` — `days` defaults to 14; `diet_label` is optional text for the markdown header
 
 ### Sync Output

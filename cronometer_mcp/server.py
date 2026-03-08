@@ -449,6 +449,100 @@ def remove_food_entry(serving_id: str) -> str:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
 
+@mcp.tool()
+def get_macro_targets(
+    target_date: str | None = None,
+) -> str:
+    """Get current daily macro targets from Cronometer.
+
+    Returns the effective macro targets (protein, fat, carbs, calories)
+    and the template name for a specific date or all days of the week.
+
+    Args:
+        target_date: Date as YYYY-MM-DD to get targets for (defaults to today).
+                     Pass "all" to get the full weekly schedule.
+    """
+    try:
+        client = _get_client()
+
+        if target_date == "all":
+            schedules = client.get_all_macro_schedules()
+            return json.dumps({
+                "status": "success",
+                "type": "weekly_schedule",
+                "schedules": schedules,
+            }, indent=2)
+
+        day = _parse_date(target_date)
+        targets = client.get_daily_macro_targets(day)
+        return json.dumps({
+            "status": "success",
+            "type": "daily_targets",
+            "date": target_date or str(date.today()),
+            "targets": targets,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+def set_macro_targets(
+    protein_grams: float | None = None,
+    fat_grams: float | None = None,
+    carbs_grams: float | None = None,
+    calories: float | None = None,
+    target_date: str | None = None,
+    template_name: str | None = None,
+) -> str:
+    """Update daily macro targets in Cronometer.
+
+    Reads current targets first, then updates only the provided values.
+    Omitted values remain unchanged.
+
+    Args:
+        protein_grams: Protein target in grams.
+        fat_grams: Fat target in grams.
+        carbs_grams: Net carbs target in grams.
+        calories: Calorie target in kcal.
+        target_date: Date as YYYY-MM-DD (defaults to today).
+        template_name: Template name (defaults to "Custom Targets").
+    """
+    try:
+        from datetime import date as date_type
+
+        client = _get_client()
+        day = date_type.fromisoformat(target_date) if target_date else date.today()
+
+        # Read current targets to preserve unchanged values
+        current = client.get_daily_macro_targets(day)
+
+        new_protein = protein_grams if protein_grams is not None else current["protein_g"]
+        new_fat = fat_grams if fat_grams is not None else current["fat_g"]
+        new_carbs = carbs_grams if carbs_grams is not None else current["carbs_g"]
+        new_calories = calories if calories is not None else current["calories"]
+        name = template_name or "Custom Targets"
+
+        client.update_daily_targets(
+            day=day,
+            protein_g=new_protein,
+            fat_g=new_fat,
+            carbs_g=new_carbs,
+            calories=new_calories,
+            template_name=name,
+        )
+
+        # Read back to confirm
+        updated = client.get_daily_macro_targets(day)
+        return json.dumps({
+            "status": "success",
+            "date": str(day),
+            "previous": current,
+            "updated": updated,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
 def _get_data_dir() -> Path:
     """Get the data directory for sync output.
 

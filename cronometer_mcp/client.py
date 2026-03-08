@@ -104,6 +104,41 @@ GWT_GET_FOOD = (
     "1|2|3|4|2|5|6|7|{food_source_id}|"
 )
 
+GWT_GET_ALL_MACRO_SCHEDULES = (
+    "7|0|7|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "getAllMacroSchedules|java.lang.String/2004016611|"
+    "I|{nonce}|"
+    "1|2|3|4|2|5|6|7|{user_id}|"
+)
+
+GWT_GET_DAILY_MACRO_TARGET_TEMPLATE = (
+    "7|0|8|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "getDailyMacroTargetTemplate|java.lang.String/2004016611|"
+    "I|com.cronometer.shared.entries.models.Day/782579793|"
+    "{nonce}|"
+    "1|2|3|4|3|5|6|7|8|{user_id}|7|{day}|{month}|{year}|"
+)
+
+GWT_UPDATE_DAILY_TARGET_TEMPLATE = (
+    "7|0|12|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "updateDailyTargetTemplate|java.lang.String/2004016611|"
+    "I|com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822|"
+    "{nonce}|"
+    "java.lang.Boolean/476441737|"
+    "java.lang.Double/858496421|"
+    "com.cronometer.shared.entries.models.Day/782579793|"
+    "{template_name}|"
+    "1|2|3|4|3|5|6|7|8|{user_id}|"
+    "7|9|0|10|{carbs}|0|11|{day}|{month}|{year}|"
+    "10|{calories}|10|{fat}|0|1|0|0|0|12|10|{protein}|0|"
+)
+
 EXPORT_TYPES = {
     "servings": "servings",
     "daily_summary": "dailySummary",
@@ -913,3 +948,361 @@ class CronometerClient:
     ) -> list[dict]:
         """Get daily nutrition summary for a date range."""
         return self.export_parsed("daily_summary", start, end)
+
+    # ── Macro target methods ──────────────────────────────────────────
+
+    @staticmethod
+    def _extract_gwt_string_table(raw: str) -> list[str]:
+        """Extract the string table from a GWT-RPC //OK[...] response."""
+        closing = ",0,7]"
+        st_close = len(raw) - len(closing) - 1
+        depth, pos, in_str = 1, st_close - 1, False
+        while pos >= 0 and depth > 0:
+            ch = raw[pos]
+            if ch == '"' and (pos == 0 or raw[pos - 1] != "\\"):
+                in_str = not in_str
+            elif not in_str:
+                if ch == "]":
+                    depth += 1
+                elif ch == "[":
+                    depth -= 1
+            pos -= 1
+        st_open = pos + 1
+        return json.loads(raw[st_open : st_close + 1])
+
+    @staticmethod
+    def _tokenize_gwt_data(raw: str, string_table: list[str]) -> list:
+        """Tokenize the data section of a GWT-RPC response.
+
+        Returns a list of int, float, or str tokens.
+        """
+        # Find the string table position to extract data before it
+        closing = ",0,7]"
+        st_close = len(raw) - len(closing) - 1
+        depth, pos, in_str = 1, st_close - 1, False
+        while pos >= 0 and depth > 0:
+            ch = raw[pos]
+            if ch == '"' and (pos == 0 or raw[pos - 1] != "\\"):
+                in_str = not in_str
+            elif not in_str:
+                if ch == "]":
+                    depth += 1
+                elif ch == "[":
+                    depth -= 1
+            pos -= 1
+        st_open = pos + 1
+
+        data_section = raw[5:st_open].rstrip(",")
+        if not data_section:
+            return []
+
+        tokens: list = []
+        for part in data_section.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if part.startswith('"') and part.endswith('"'):
+                tokens.append(part.strip('"'))
+                continue
+            try:
+                tokens.append(float(part) if "." in part else int(part))
+            except ValueError:
+                tokens.append(None)
+        return tokens
+
+    @staticmethod
+    def _parse_macro_target_template(raw: str) -> dict:
+        """Parse a GWT-RPC response containing a single MacroTargetTemplate.
+
+        Works for both getDailyMacroTargetTemplate and getMacroTargetTemplate
+        responses. Extracts macro values by finding float tokens in the data.
+
+        The float values appear in a fixed order (left to right):
+        protein, fat, calories, carbs.
+
+        Returns:
+            Dict with keys: protein_g, fat_g, calories, carbs_g, template_name.
+        """
+        result = {
+            "protein_g": 0.0,
+            "fat_g": 0.0,
+            "calories": 0.0,
+            "carbs_g": 0.0,
+            "template_name": "",
+        }
+
+        if not raw.startswith("//OK[") or not raw.endswith(",0,7]"):
+            return result
+
+        string_table = CronometerClient._extract_gwt_string_table(raw)
+
+        # Template name = last non-class string in the string table
+        for entry in reversed(string_table):
+            if (
+                not entry.startswith("com.")
+                and not entry.startswith("java.")
+                and not entry.startswith("[")
+            ):
+                result["template_name"] = entry
+                break
+
+        # Tokenize and extract float values
+        tokens = CronometerClient._tokenize_gwt_data(raw, string_table)
+        floats = [t for t in tokens if isinstance(t, float)]
+
+        # In MacroTargetTemplate responses, floats appear in order:
+        # protein, fat, calories, carbs
+        if len(floats) >= 4:
+            result["protein_g"] = floats[0]
+            result["fat_g"] = floats[1]
+            result["calories"] = floats[2]
+            result["carbs_g"] = floats[3]
+
+        return result
+
+    @staticmethod
+    def _parse_all_macro_schedules(raw: str) -> list[dict]:
+        """Parse a GWT-RPC getAllMacroSchedules response.
+
+        Returns a list of 7 dicts (one per day of week), each with:
+        day_of_week (0=Sun..6=Sat), protein_g, fat_g, calories, carbs_g,
+        template_name, template_id.
+
+        GWT encoding note: The response contains 7 MacroSchedule objects
+        in fixed-size blocks. Only the first block uses full type refs;
+        subsequent blocks use GWT back-references (-N). The block size
+        is determined by finding the first MacroSchedule type ref.
+        Within each block, floats appear in order: protein, fat, calories,
+        carbs. The day ordinal is the last token in each block (for block 0,
+        the MacroSchedule type ref occupies that slot, so day 0 = Sunday
+        is inferred).
+        """
+        _DOW_NAMES = [
+            "Sunday", "Monday", "Tuesday", "Wednesday",
+            "Thursday", "Friday", "Saturday",
+        ]
+
+        if not raw.startswith("//OK[") or not raw.endswith(",0,7]"):
+            return []
+
+        string_table = CronometerClient._extract_gwt_string_table(raw)
+        tokens = CronometerClient._tokenize_gwt_data(raw, string_table)
+
+        # Find MacroSchedule type index (1-based) in string table
+        schedule_type_idx = None
+        for idx, entry in enumerate(string_table):
+            if "MacroSchedule/" in entry:
+                schedule_type_idx = idx + 1
+                break
+
+        if schedule_type_idx is None:
+            return []
+
+        # Find the first occurrence of the MacroSchedule type ref to
+        # determine block size. It appears at the END of the first block.
+        first_sched_pos = None
+        for i, token in enumerate(tokens):
+            if token == schedule_type_idx:
+                first_sched_pos = i
+                break
+
+        if first_sched_pos is None:
+            return []
+
+        block_size = first_sched_pos + 1  # block 0 spans tokens 0..first_sched_pos
+
+        # Template name(s) — non-class strings in the string table.
+        # Also handle negative back-refs (e.g., -6 → string_table[5]).
+        template_names = {}
+        for idx, entry in enumerate(string_table):
+            if (
+                not entry.startswith("com.")
+                and not entry.startswith("java.")
+                and not entry.startswith("[")
+            ):
+                template_names[idx + 1] = entry      # positive ref
+                template_names[-(idx + 1)] = entry    # negative back-ref
+
+        # Extract 7 blocks and determine day ordinals.
+        # GWT serialization varies between Cronometer versions:
+        # - Some versions put the ordinal at block[-4] (before type refs)
+        # - Others put it at block[-1] (after back-refs)
+        # Strategy: try block[-4] first; if values aren't unique 0-6, try block[-1].
+        blocks = []
+        for block_idx in range(7):
+            start = block_idx * block_size
+            end = start + block_size
+            if end > len(tokens):
+                break
+            blocks.append(tokens[start:end])
+
+        # Try block[-4] for day ordinals
+        ordinals_m4 = [b[-4] if len(b) >= 4 and isinstance(b[-4], int) else -1 for b in blocks]
+        ordinals_m1 = [b[-1] if len(b) >= 1 and isinstance(b[-1], int) else -1 for b in blocks]
+
+        if set(ordinals_m4) == set(range(7)):
+            ordinals = ordinals_m4
+        else:
+            # block[-1] has ordinals for blocks 1-6; block 0's [-1] is
+            # the MacroSchedule type ref (a duplicate value). Detect the
+            # duplicate and replace it with the missing ordinal.
+            ordinals = list(ordinals_m1)
+            seen: dict[int, list[int]] = {}
+            for i, v in enumerate(ordinals):
+                seen.setdefault(v, []).append(i)
+            missing = set(range(7)) - set(ordinals)
+            if missing:
+                missing_val = missing.pop()
+                # Find the duplicate value — the one that appears twice
+                for val, indices in seen.items():
+                    if len(indices) > 1:
+                        # The first occurrence (block 0) is the bogus one
+                        ordinals[indices[0]] = missing_val
+                        break
+            # Fallback: if still not unique, assign sequentially
+            if set(ordinals) != set(range(7)):
+                ordinals = list(range(7))
+
+        schedules = []
+        for block_idx, block in enumerate(blocks):
+            dow_ordinal = ordinals[block_idx]
+
+            template_data = {
+                "day_of_week": dow_ordinal,
+                "day_name": _DOW_NAMES[dow_ordinal] if 0 <= dow_ordinal < 7 else f"Day {dow_ordinal}",
+                "protein_g": 0.0,
+                "fat_g": 0.0,
+                "calories": 0.0,
+                "carbs_g": 0.0,
+                "template_name": "",
+                "template_id": 0,
+            }
+
+            # Extract floats from this block → [protein, fat, calories, carbs]
+            floats = [t for t in block if isinstance(t, float)]
+            if len(floats) >= 4:
+                template_data["protein_g"] = floats[0]
+                template_data["fat_g"] = floats[1]
+                template_data["calories"] = floats[2]
+                template_data["carbs_g"] = floats[3]
+
+            # Template name: look for string refs (positive or negative)
+            for t in block:
+                if isinstance(t, int) and t in template_names:
+                    template_data["template_name"] = template_names[t]
+
+            # Template ID: large integer (> string table size) in the block
+            for t in block:
+                if isinstance(t, int) and t > len(string_table):
+                    template_data["template_id"] = t
+                    break
+
+            schedules.append(template_data)
+
+        # Sort by day_of_week
+        schedules.sort(key=lambda x: x["day_of_week"])
+        return schedules
+
+    def get_all_macro_schedules(self) -> list[dict]:
+        """Get the weekly macro target schedule (all 7 days).
+
+        Returns:
+            List of 7 dicts, one per day of week, each containing:
+            - day_of_week (int): 0=Sunday through 6=Saturday
+            - day_name (str): Human-readable day name
+            - protein_g (float): Protein target in grams
+            - fat_g (float): Fat target in grams
+            - calories (float): Calorie target
+            - carbs_g (float): Net carbs target in grams
+            - template_name (str): Name of the assigned template
+            - template_id (int): Template ID (0 for custom)
+        """
+        self.authenticate()
+        body = (
+            GWT_GET_ALL_MACRO_SCHEDULES
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+        )
+        raw = self._gwt_post(body)
+        return self._parse_all_macro_schedules(raw)
+
+    def get_daily_macro_targets(self, day: date | None = None) -> dict:
+        """Get the effective macro targets for a specific date.
+
+        Args:
+            day: Target date (defaults to today).
+
+        Returns:
+            Dict with keys: protein_g, fat_g, calories, carbs_g,
+            template_name.
+        """
+        self.authenticate()
+        if day is None:
+            day = date.today()
+        body = (
+            GWT_GET_DAILY_MACRO_TARGET_TEMPLATE
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+            .replace("{day}", str(day.day))
+            .replace("{month}", str(day.month))
+            .replace("{year}", str(day.year))
+        )
+        raw = self._gwt_post(body)
+        return self._parse_macro_target_template(raw)
+
+    def update_daily_targets(
+        self,
+        day: date,
+        protein_g: float,
+        fat_g: float,
+        carbs_g: float,
+        calories: float,
+        template_name: str = "Custom Targets",
+    ) -> bool:
+        """Update macro targets for a specific date.
+
+        Args:
+            day: Target date.
+            protein_g: Protein target in grams.
+            fat_g: Fat target in grams.
+            carbs_g: Net carbs target in grams.
+            calories: Calorie target.
+            template_name: Template name (default "Custom Targets").
+
+        Returns:
+            True on success.
+        """
+        self.authenticate()
+
+        # Format numeric values: integers as int, otherwise float
+        def _fmt(v: float) -> str:
+            return str(int(v)) if v == int(v) else str(v)
+
+        body = (
+            GWT_UPDATE_DAILY_TARGET_TEMPLATE
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+            .replace("{template_name}", template_name)
+            .replace("{day}", str(day.day))
+            .replace("{month}", str(day.month))
+            .replace("{year}", str(day.year))
+            .replace("{protein}", _fmt(protein_g))
+            .replace("{fat}", _fmt(fat_g))
+            .replace("{carbs}", _fmt(carbs_g))
+            .replace("{calories}", _fmt(calories))
+        )
+        raw = self._gwt_post(body)
+        # Success: //OK[1,2,1,["...ResponseEvent...","Success"],0,7]
+        if "Success" in raw:
+            logger.info(
+                "Updated daily targets for %s: protein=%.1fg, fat=%.1fg, "
+                "carbs=%.1fg, calories=%.0f",
+                day, protein_g, fat_g, carbs_g, calories,
+            )
+            return True
+        raise RuntimeError(
+            f"updateDailyTargetTemplate failed: {raw[:300]}"
+        )

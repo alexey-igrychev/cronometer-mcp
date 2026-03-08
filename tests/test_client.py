@@ -948,3 +948,216 @@ class TestSessionPersistence:
 
         assert restored is False
         assert not cookie_path.exists()
+
+
+# ── Macro Target Tests ──────────────────────────────────────────────────
+
+
+class TestParseMacroTargetTemplate:
+    """Tests for _parse_macro_target_template static parser."""
+
+    SAMPLE_RESPONSE = (
+        '//OK[0,155.0,7,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,6,5,4,3,2,1,'
+        '["java.util.ArrayList/4159755760",'
+        '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
+        '"java.lang.Boolean/476441737",'
+        '"java.lang.Double/858496421",'
+        '"com.cronometer.shared.entries.models.Day/782579793",'
+        '"Keto Rigorous"],0,7]'
+    )
+
+    def test_parses_macro_values(self):
+        result = CronometerClient._parse_macro_target_template(self.SAMPLE_RESPONSE)
+        assert result["protein_g"] == 155.0
+        assert result["fat_g"] == 85.0
+        assert result["calories"] == 1970.0
+        assert result["carbs_g"] == 12.0
+
+    def test_parses_template_name(self):
+        result = CronometerClient._parse_macro_target_template(self.SAMPLE_RESPONSE)
+        assert result["template_name"] == "Keto Rigorous"
+
+    def test_returns_defaults_for_invalid_response(self):
+        result = CronometerClient._parse_macro_target_template("//EX[error]")
+        assert result["protein_g"] == 0.0
+        assert result["template_name"] == ""
+
+    def test_returns_defaults_for_empty_ok(self):
+        result = CronometerClient._parse_macro_target_template("//OK[[],0,7]")
+        assert result["protein_g"] == 0.0
+
+
+class TestParseAllMacroSchedules:
+    """Tests for _parse_all_macro_schedules static parser."""
+
+    # Captured from live Cronometer (all 7 days = "Keto Rigorous")
+    SAMPLE_RESPONSE = (
+        '//OK[0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,4,3,2,'
+        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,1,'
+        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,2,'
+        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,3,'
+        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,4,'
+        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,5,'
+        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,6,'
+        '7,1,'
+        '["java.util.ArrayList/4159755760",'
+        '"com.cronometer.shared.targets.models.MacroSchedule/965693762",'
+        '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
+        '"com.cronometer.shared.targets.models.DayOfWeek/487453263",'
+        '"com.cronometer.shared.targets.models.DayOfWeekEnum/1545088503",'
+        '"Keto Rigorous",'
+        '"java.lang.Boolean/476441737",'
+        '"java.lang.Double/858496421",'
+        '"com.cronometer.shared.entries.models.Day/782579793"],0,7]'
+    )
+
+    def test_returns_7_entries(self):
+        schedules = CronometerClient._parse_all_macro_schedules(self.SAMPLE_RESPONSE)
+        assert len(schedules) == 7
+
+    def test_all_days_present(self):
+        schedules = CronometerClient._parse_all_macro_schedules(self.SAMPLE_RESPONSE)
+        days = [s["day_of_week"] for s in schedules]
+        assert sorted(days) == [0, 1, 2, 3, 4, 5, 6]
+
+    def test_day_names(self):
+        schedules = CronometerClient._parse_all_macro_schedules(self.SAMPLE_RESPONSE)
+        names = [s["day_name"] for s in schedules]
+        assert names == [
+            "Sunday", "Monday", "Tuesday", "Wednesday",
+            "Thursday", "Friday", "Saturday",
+        ]
+
+    def test_macro_values(self):
+        schedules = CronometerClient._parse_all_macro_schedules(self.SAMPLE_RESPONSE)
+        for s in schedules:
+            assert s["protein_g"] == 155.0
+            assert s["fat_g"] == 85.0
+            assert s["calories"] == 1970.0
+            assert s["carbs_g"] == 12.0
+
+    def test_template_name(self):
+        schedules = CronometerClient._parse_all_macro_schedules(self.SAMPLE_RESPONSE)
+        for s in schedules:
+            assert s["template_name"] == "Keto Rigorous"
+
+    def test_template_id(self):
+        schedules = CronometerClient._parse_all_macro_schedules(self.SAMPLE_RESPONSE)
+        for s in schedules:
+            assert s["template_id"] == 124947
+
+    def test_returns_empty_for_invalid_response(self):
+        assert CronometerClient._parse_all_macro_schedules("//EX[error]") == []
+
+    def test_returns_empty_for_missing_type(self):
+        raw = '//OK[1,2,3,["java.util.ArrayList/4159755760"],0,7]'
+        assert CronometerClient._parse_all_macro_schedules(raw) == []
+
+
+class TestGetDailyMacroTargets:
+    """Tests for get_daily_macro_targets (mocked GWT calls)."""
+
+    def _make_client(self):
+        c = CronometerClient(username="t@t.com", password="pw")
+        c._authenticated = True
+        c.nonce = "testnonce"
+        c.user_id = "42"
+        c.gwt_header = "AAAA"
+        c.session = MagicMock()
+        return c
+
+    def test_calls_gwt_post_with_date(self):
+        c = self._make_client()
+        resp = (
+            '//OK[0,180.0,7,0,0,99999,8,1,0,100.0,7,2200.0,7,0,0,50.0,7,6,5,4,3,2,1,'
+            '["java.util.ArrayList/4159755760",'
+            '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
+            '"java.lang.Boolean/476441737",'
+            '"java.lang.Double/858496421",'
+            '"com.cronometer.shared.entries.models.Day/782579793",'
+            '"Custom"],0,7]'
+        )
+        c.session.post = MagicMock(
+            return_value=MagicMock(text=resp, raise_for_status=lambda: None)
+        )
+        result = c.get_daily_macro_targets(day=date(2026, 3, 8))
+
+        assert result["protein_g"] == 180.0
+        assert result["fat_g"] == 100.0
+        assert result["calories"] == 2200.0
+        assert result["carbs_g"] == 50.0
+        assert result["template_name"] == "Custom"
+
+        # Verify the date appeared in the request body
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "|8|3|2026|" in call_body
+
+    def test_defaults_to_today(self):
+        c = self._make_client()
+        resp = '//OK[0,155.0,7,0,0,1,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,6,5,4,3,2,1,["java.util.ArrayList/4159755760","com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822","java.lang.Boolean/476441737","java.lang.Double/858496421","com.cronometer.shared.entries.models.Day/782579793","Keto"],0,7]'
+        c.session.post = MagicMock(
+            return_value=MagicMock(text=resp, raise_for_status=lambda: None)
+        )
+        result = c.get_daily_macro_targets()
+        assert result["protein_g"] == 155.0
+
+
+class TestUpdateDailyTargets:
+    """Tests for update_daily_targets (mocked GWT calls)."""
+
+    def _make_client(self):
+        c = CronometerClient(username="t@t.com", password="pw")
+        c._authenticated = True
+        c.nonce = "testnonce"
+        c.user_id = "42"
+        c.gwt_header = "AAAA"
+        c.session = MagicMock()
+        return c
+
+    def test_success_returns_true(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[1,2,1,["ResponseEvent","Success"],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.update_daily_targets(
+            day=date(2026, 3, 8),
+            protein_g=180, fat_g=100, carbs_g=50, calories=2200,
+        )
+        assert result is True
+
+    def test_failure_raises(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//EX[some error]',
+                raise_for_status=lambda: None,
+            )
+        )
+        with pytest.raises(RuntimeError, match="GWT-RPC call failed"):
+            c.update_daily_targets(
+                day=date(2026, 3, 8),
+                protein_g=180, fat_g=100, carbs_g=50, calories=2200,
+            )
+
+    def test_body_contains_values(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[1,2,1,["ResponseEvent","Success"],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.update_daily_targets(
+            day=date(2026, 3, 8),
+            protein_g=180, fat_g=100, carbs_g=50, calories=2200,
+            template_name="My Custom",
+        )
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "|180|" in call_body or "180" in call_body
+        assert "|100|" in call_body or "100" in call_body
+        assert "|50|" in call_body or "50" in call_body
+        assert "|2200|" in call_body or "2200" in call_body
+        assert "My Custom" in call_body
