@@ -168,6 +168,57 @@ GWT_DELETE_MACRO_TARGET_TEMPLATE = (
     "1|2|3|4|3|5|6|6|7|{user_id}|{template_id}|"
 )
 
+# --- Fasting GWT templates ---
+
+GWT_GET_USER_FASTS = (
+    "7|0|7|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "getUserFasts|java.lang.String/2004016611|"
+    "I|{nonce}|"
+    "1|2|3|4|2|5|6|7|{user_id}|"
+)
+
+GWT_GET_USER_FASTS_FOR_RANGE = (
+    "7|0|8|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "getUserFastsForRange|java.lang.String/2004016611|"
+    "I|com.cronometer.shared.entries.models.Day/782579793|"
+    "{nonce}|"
+    "1|2|3|4|4|5|6|7|7|8|{user_id}|"
+    "7|{start_day}|{start_month}|{start_year}|"
+    "7|{end_day}|{end_month}|{end_year}|"
+)
+
+GWT_GET_FASTING_STATS = (
+    "7|0|7|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "getFastingStats|java.lang.String/2004016611|"
+    "I|{nonce}|"
+    "1|2|3|4|2|5|6|7|{user_id}|"
+)
+
+GWT_DELETE_FAST = (
+    "7|0|8|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "deleteFast|java.lang.String/2004016611|"
+    "I|java.lang.Integer/3438268394|"
+    "{nonce}|"
+    "1|2|3|4|4|5|6|6|7|8|{user_id}|{fast_id}|0|"
+)
+
+GWT_CANCEL_FAST_KEEP_SERIES = (
+    "7|0|7|https://cronometer.com/cronometer/|"
+    "{gwt_header}|"
+    "com.cronometer.shared.rpc.CronometerService|"
+    "cancelFastAndKeepSeries|java.lang.String/2004016611|"
+    "I|{nonce}|"
+    "1|2|3|4|3|5|6|6|7|{user_id}|{fast_id}|"
+)
+
 # US ordering (getAllMacroSchedules) to ISO ordering (saveMacroSchedule)
 # getAllMacroSchedules: 0=Sun, 1=Mon, ..., 6=Sat
 # saveMacroSchedule:   0=Mon, 1=Tue, ..., 6=Sun
@@ -1618,3 +1669,289 @@ class CronometerClient:
         raise RuntimeError(
             f"deleteMacroTargetTemplate failed: {raw[:300]}"
         )
+
+    # --- Fasting methods ---
+
+    def get_user_fasts(self) -> list[dict]:
+        """Get all fasting history.
+
+        Returns:
+            List of fast dicts with keys: fast_id, recurrence_id, name,
+            recurrence_rule, start_ts, end_ts, notes, is_active.
+        """
+        self.authenticate()
+        body = (
+            GWT_GET_USER_FASTS
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+        )
+        raw = self._gwt_post(body)
+        return self._parse_fasts(raw)
+
+    def get_user_fasts_for_range(
+        self, start: date, end: date,
+    ) -> list[dict]:
+        """Get fasts for a specific date range.
+
+        Args:
+            start: Start date.
+            end: End date.
+
+        Returns:
+            List of fast dicts.
+        """
+        self.authenticate()
+        body = (
+            GWT_GET_USER_FASTS_FOR_RANGE
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+            .replace("{start_day}", str(start.day))
+            .replace("{start_month}", str(start.month))
+            .replace("{start_year}", str(start.year))
+            .replace("{end_day}", str(end.day))
+            .replace("{end_month}", str(end.month))
+            .replace("{end_year}", str(end.year))
+        )
+        raw = self._gwt_post(body)
+        return self._parse_fasts(raw)
+
+    def get_fasting_stats(self) -> dict:
+        """Get aggregate fasting statistics.
+
+        Returns:
+            Dict with keys: total_hours, longest_fast_hours,
+            seven_fast_avg_hours, completed_count.
+        """
+        self.authenticate()
+        body = (
+            GWT_GET_FASTING_STATS
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+        )
+        raw = self._gwt_post(body)
+        return self._parse_fasting_stats(raw)
+
+    def delete_fast(self, fast_id: int) -> bool:
+        """Delete a fast entry.
+
+        Args:
+            fast_id: Fast ID to delete.
+
+        Returns:
+            True on success.
+        """
+        self.authenticate()
+        body = (
+            GWT_DELETE_FAST
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+            .replace("{fast_id}", str(fast_id))
+        )
+        raw = self._gwt_post(body)
+        if "//OK" in raw:
+            logger.info("Deleted fast: id=%d", fast_id)
+            return True
+        raise RuntimeError(f"deleteFast failed: {raw[:300]}")
+
+    def cancel_fast_keep_series(self, fast_id: int) -> bool:
+        """Cancel an active fast while preserving the recurring schedule.
+
+        Args:
+            fast_id: The recurrence/fast ID of the active fast.
+
+        Returns:
+            True on success.
+        """
+        self.authenticate()
+        body = (
+            GWT_CANCEL_FAST_KEEP_SERIES
+            .replace("{gwt_header}", self.gwt_header)
+            .replace("{nonce}", self.nonce or "")
+            .replace("{user_id}", self.user_id or "")
+            .replace("{fast_id}", str(fast_id))
+        )
+        raw = self._gwt_post(body)
+        if "//OK" in raw:
+            logger.info("Cancelled fast (kept series): id=%d", fast_id)
+            return True
+        raise RuntimeError(
+            f"cancelFastAndKeepSeries failed: {raw[:300]}"
+        )
+
+    @staticmethod
+    def _parse_fasting_stats(raw: str) -> dict:
+        """Parse getFastingStats GWT response.
+
+        Response format:
+        //OK[{totalHours},{longestFast},{sevenFastAvg},{completedCount},
+             1,[...string table...],0,7]
+        """
+        if not raw.startswith("//OK["):
+            return {}
+
+        string_table = CronometerClient._extract_gwt_string_table(raw)
+        tokens = CronometerClient._tokenize_gwt_data(raw, string_table)
+
+        floats = [t for t in tokens if isinstance(t, float)]
+        ints = [t for t in tokens if isinstance(t, int)]
+
+        result = {
+            "total_hours": 0.0,
+            "longest_fast_hours": 0.0,
+            "seven_fast_avg_hours": 0.0,
+            "completed_count": 0,
+        }
+
+        if len(floats) >= 3:
+            result["total_hours"] = round(floats[0], 1)
+            result["longest_fast_hours"] = round(floats[1], 1)
+            result["seven_fast_avg_hours"] = round(floats[2], 1)
+
+        # completed_count is typically the first large-ish int
+        # (after string table refs which are small)
+        for val in ints:
+            if val > len(string_table) and val < 100000:
+                result["completed_count"] = val
+                break
+
+        return result
+
+    @staticmethod
+    def _parse_fasts(raw: str) -> list[dict]:
+        """Parse getUserFasts or getUserFastsForRange GWT response.
+
+        Extracts Fast objects from the GWT-RPC response. Each Fast has:
+        - fast_id (int)
+        - recurrence_id (int)
+        - name (str)
+        - recurrence_rule (str, e.g. "FREQ=WEEKLY")
+        - start_ts (str, base62 timestamp)
+        - end_ts (str, base62 timestamp or "0")
+        - is_active (bool, True if end_ts is "0" or empty)
+        """
+        if not raw.startswith("//OK["):
+            return []
+
+        string_table = CronometerClient._extract_gwt_string_table(raw)
+        tokens = CronometerClient._tokenize_gwt_data(raw, string_table)
+
+        # Find the Fast type in string table
+        fast_type_idx = None
+        for idx, entry in enumerate(string_table):
+            if "fasting.Fast/" in entry and "[L" not in entry:
+                fast_type_idx = idx + 1
+                break
+
+        if fast_type_idx is None:
+            return []
+
+        # Find FastingRecurrance type
+        recurrence_type_idx = None
+        for idx, entry in enumerate(string_table):
+            if "FastingRecurrance/" in entry:
+                recurrence_type_idx = idx + 1
+                break
+
+        # Extract meaningful strings (fast names, recurrence rules, notes)
+        meaningful_strings = {}
+        for idx, entry in enumerate(string_table):
+            if (
+                not entry.startswith("com.")
+                and not entry.startswith("java.")
+                and not entry.startswith("[")
+            ):
+                meaningful_strings[idx + 1] = entry
+                meaningful_strings[-(idx + 1)] = entry
+
+        # Find the first Fast type ref to determine block size
+        first_fast_pos = None
+        for i, token in enumerate(tokens):
+            if token == fast_type_idx:
+                first_fast_pos = i
+                break
+
+        if first_fast_pos is None:
+            return []
+
+        block_size = first_fast_pos + 1
+
+        # Extract blocks
+        fasts = []
+        block_idx = 0
+        while True:
+            start = block_idx * block_size
+            end = start + block_size
+            if end > len(tokens):
+                break
+
+            block = tokens[start:end]
+
+            # Extract strings from this block (fast name, recurrence rule,
+            # notes). Strings are referenced by string table index.
+            block_strings = []
+            for t in block:
+                if isinstance(t, str):
+                    block_strings.append(t)
+                elif isinstance(t, int) and t in meaningful_strings:
+                    block_strings.append(meaningful_strings[t])
+                elif isinstance(t, int) and t < 0 and t in meaningful_strings:
+                    block_strings.append(meaningful_strings[t])
+
+            # Extract large ints (fast_id, recurrence_id)
+            large_ints = [
+                t for t in block
+                if isinstance(t, int)
+                and abs(t) > len(string_table)
+                and abs(t) < 10**9
+            ]
+
+            # Extract quoted strings (base62 timestamps)
+            quoted_strings = [t for t in block if isinstance(t, str)]
+
+            # Build fast dict
+            fast = {
+                "fast_id": large_ints[0] if len(large_ints) >= 1 else 0,
+                "recurrence_id": large_ints[1] if len(large_ints) >= 2 else 0,
+                "name": "",
+                "recurrence_rule": "",
+                "start_ts": "",
+                "end_ts": "",
+                "is_active": False,
+            }
+
+            # Assign strings heuristically
+            for s in block_strings:
+                if s.startswith("FREQ="):
+                    fast["recurrence_rule"] = s
+                elif any(c.isalpha() and c.isupper() for c in s) and len(s) < 10 and s != "0":
+                    # Likely a base62 timestamp
+                    if not fast["start_ts"]:
+                        fast["start_ts"] = s
+                    else:
+                        fast["end_ts"] = s
+                elif len(s) > 3:
+                    # Likely a name or note
+                    if not fast["name"]:
+                        fast["name"] = s
+                    # Additional strings could be notes
+
+            # Timestamps from quoted strings in the block
+            for s in quoted_strings:
+                if s and s != "0" and len(s) >= 5:
+                    if not fast["start_ts"]:
+                        fast["start_ts"] = s
+                    elif not fast["end_ts"]:
+                        fast["end_ts"] = s
+
+            fast["is_active"] = fast["end_ts"] in ("", "0")
+
+            if fast["fast_id"] or fast["name"]:
+                fasts.append(fast)
+
+            block_idx += 1
+
+        return fasts

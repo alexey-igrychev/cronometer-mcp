@@ -714,6 +714,104 @@ def create_macro_template(
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
 
+@mcp.tool()
+def get_fasting_history(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
+    """Get fasting history from Cronometer.
+
+    Returns all fasts (or fasts within a date range) with their status,
+    names, recurrence rules, and timestamps.
+
+    Args:
+        start_date: Start date as YYYY-MM-DD (omit for all history).
+        end_date: End date as YYYY-MM-DD (omit for all history).
+    """
+    try:
+        client = _get_client()
+
+        if start_date and end_date:
+            start = _parse_date(start_date)
+            end = _parse_date(end_date)
+            fasts = client.get_user_fasts_for_range(start, end)
+        else:
+            fasts = client.get_user_fasts()
+
+        active = [f for f in fasts if f.get("is_active")]
+        completed = [f for f in fasts if not f.get("is_active")]
+
+        return json.dumps({
+            "status": "success",
+            "total_fasts": len(fasts),
+            "active_fasts": len(active),
+            "completed_fasts": len(completed),
+            "fasts": fasts,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+def get_fasting_stats() -> str:
+    """Get aggregate fasting statistics from Cronometer.
+
+    Returns total fasting hours, longest fast, 7-fast average,
+    and completed fast count.
+    """
+    try:
+        client = _get_client()
+        stats = client.get_fasting_stats()
+        return json.dumps({
+            "status": "success",
+            "stats": stats,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+def delete_fast(fast_id: int) -> str:
+    """Delete a fast entry from Cronometer.
+
+    Use get_fasting_history first to find the fast_id.
+
+    Args:
+        fast_id: The fast ID to delete.
+    """
+    try:
+        client = _get_client()
+        client.delete_fast(fast_id)
+        return json.dumps({
+            "status": "success",
+            "fast_id": fast_id,
+            "message": "Fast deleted.",
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+def cancel_active_fast(fast_id: int) -> str:
+    """Cancel an active (in-progress) fast while preserving the recurring schedule.
+
+    Use get_fasting_history to find active fasts (is_active=true).
+
+    Args:
+        fast_id: The fast ID of the active fast to cancel.
+    """
+    try:
+        client = _get_client()
+        client.cancel_fast_keep_series(fast_id)
+        return json.dumps({
+            "status": "success",
+            "fast_id": fast_id,
+            "message": "Active fast cancelled. Recurring schedule preserved.",
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
 def _get_data_dir() -> Path:
     """Get the data directory for sync output.
 
