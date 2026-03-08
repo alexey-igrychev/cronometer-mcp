@@ -2401,8 +2401,8 @@ class CronometerClient:
         if days_of_week is None:
             days_of_week = [0, 1, 2, 3, 4, 5, 6]
 
-        # Build day entries: "10|{day}|" for each day
-        day_entries = "".join(f"10|{d}|" for d in days_of_week)
+        # Build day entries: "10|{day}" for each day, joined by "|"
+        day_entries = "|".join(f"10|{d}" for d in days_of_week)
 
         # Format quantity
         qty_str = str(int(quantity)) if quantity == int(quantity) else str(quantity)
