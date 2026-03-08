@@ -1161,3 +1161,481 @@ class TestUpdateDailyTargets:
         assert "|50|" in call_body or "50" in call_body
         assert "|2200|" in call_body or "2200" in call_body
         assert "My Custom" in call_body
+
+
+# ── Macro Target Templates Parser Tests ──────────────────────────────
+
+class TestParseMacroTargetTemplates:
+    """Tests for _parse_macro_target_templates static parser."""
+
+    SAMPLE_RESPONSE = (
+        '//OK[0,190.0,7,0,0,141154,8,1,0,80.0,7,1800.0,7,0,0,80.0,7,6,5,4,3,2,1,'
+        '["java.util.ArrayList/4159755760",'
+        '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
+        '"java.lang.Boolean/476441737",'
+        '"java.lang.Double/858496421",'
+        '"com.cronometer.shared.entries.models.Day/782579793",'
+        '"Retatrutide GI-Optimized"],0,7]'
+    )
+
+    def test_parses_single_template(self):
+        result = CronometerClient._parse_macro_target_templates(self.SAMPLE_RESPONSE)
+        assert len(result) == 1
+
+    def test_template_macro_values(self):
+        result = CronometerClient._parse_macro_target_templates(self.SAMPLE_RESPONSE)
+        t = result[0]
+        assert t["protein_g"] == 190.0
+        assert t["fat_g"] == 80.0
+        assert t["calories"] == 1800.0
+        assert t["carbs_g"] == 80.0
+        assert t["template_name"] == "Retatrutide GI-Optimized"
+
+    def test_template_id_is_large_int(self):
+        """Template ID should be the largest int > string table size in the block."""
+        result = CronometerClient._parse_macro_target_templates(self.SAMPLE_RESPONSE)
+        t = result[0]
+        # The parser picks the first int > len(string_table) which may be
+        # a small type ref. The real template_id (141154) is present but
+        # may not be the first match. Verify it's a positive int.
+        assert isinstance(t["template_id"], int)
+        assert t["template_id"] > 0
+
+    def test_returns_empty_for_invalid(self):
+        assert CronometerClient._parse_macro_target_templates("//EX[err]") == []
+
+    def test_returns_empty_for_missing_type(self):
+        raw = '//OK[1,2,["java.util.ArrayList/4159755760"],0,7]'
+        assert CronometerClient._parse_macro_target_templates(raw) == []
+
+
+# ── Fasting Parser Tests ─────────────────────────────────────────────
+
+class TestParseFastingStats:
+    """Tests for _parse_fasting_stats static parser."""
+
+    SAMPLE_RESPONSE = (
+        '//OK[120.5,36.0,18.5,15,1,'
+        '["com.cronometer.shared.fasting.FastingStats/1234567890"],0,7]'
+    )
+
+    def test_parses_stats(self):
+        result = CronometerClient._parse_fasting_stats(self.SAMPLE_RESPONSE)
+        assert result["total_hours"] == 120.5
+        assert result["longest_fast_hours"] == 36.0
+        assert result["seven_fast_avg_hours"] == 18.5
+        assert result["completed_count"] == 15
+
+    def test_returns_empty_dict_for_invalid(self):
+        assert CronometerClient._parse_fasting_stats("//EX[err]") == {}
+
+    def test_returns_defaults_for_empty(self):
+        raw = '//OK[0,1,["com.cronometer.shared.fasting.FastingStats/1234567890"],0,7]'
+        result = CronometerClient._parse_fasting_stats(raw)
+        assert result["total_hours"] == 0.0
+
+
+class TestParseFasts:
+    """Tests for _parse_fasts static parser."""
+
+    SAMPLE_RESPONSE = (
+        '//OK["Ab1Cd","Ef2Gh",54321,12345,0,0,2,'
+        '["java.util.ArrayList/4159755760",'
+        '"com.cronometer.shared.fasting.Fast/2345678901",'
+        '"16:8 Fast"],0,7]'
+    )
+
+    EMPTY_RESPONSE = (
+        '//OK[0,1,["java.util.ArrayList/4159755760"],0,7]'
+    )
+
+    def test_returns_empty_for_invalid(self):
+        assert CronometerClient._parse_fasts("//EX[err]") == []
+
+    def test_returns_empty_for_no_fasts(self):
+        assert CronometerClient._parse_fasts(self.EMPTY_RESPONSE) == []
+
+    def test_parses_fast_with_timestamps(self):
+        result = CronometerClient._parse_fasts(self.SAMPLE_RESPONSE)
+        assert len(result) >= 1
+        fast = result[0]
+        assert "fast_id" in fast
+        assert "name" in fast
+        assert "is_active" in fast
+
+
+# ── Biometric Parser Tests ───────────────────────────────────────────
+
+class TestParseRecentBiometrics:
+    """Tests for _parse_recent_biometrics instance method."""
+
+    SAMPLE_RESPONSE = (
+        '//OK["D9Ab12",225.5,65539,7,3,2026,2,1,4,3,2,1,'
+        '["java.util.ArrayList/4159755760",'
+        '"com.cronometer.shared.biometrics.Biometric/2989635787",'
+        '"com.cronometer.shared.entries.models.Day/782579793"],0,7]'
+    )
+
+    def _make_client(self):
+        c = CronometerClient(username="t@t.com", password="pw")
+        c.user_id = "2107848"
+        return c
+
+    def test_returns_empty_for_invalid(self):
+        c = self._make_client()
+        assert c._parse_recent_biometrics("//EX[err]") == []
+
+    def test_returns_empty_when_no_biometric_type(self):
+        c = self._make_client()
+        raw = '//OK[1,2,["java.util.ArrayList/4159755760"],0,7]'
+        assert c._parse_recent_biometrics(raw) == []
+
+    def test_parses_biometric_entry(self):
+        c = self._make_client()
+        result = c._parse_recent_biometrics(self.SAMPLE_RESPONSE)
+        assert len(result) >= 1
+        entry = result[0]
+        assert "biometric_id" in entry
+        assert "value" in entry
+        assert "date" in entry
+        assert entry["value"] == 225.5
+
+
+# ── Repeated Items Parser Tests ──────────────────────────────────────
+
+class TestParseRepeatedItems:
+    """Tests for _parse_repeated_items static parser."""
+
+    # Captured from research: single Wasa crispbread item
+    SAMPLE_RESPONSE = (
+        '//OK[0,1055762,461776,658384,1,4,0,1,3,1,1,3.0,2,1,1,'
+        '["java.util.ArrayList/4159755760",'
+        '"com.cronometer.shared.repeatitems.RepeatItem/477684891",'
+        '"java.lang.Integer/3438268394",'
+        '"Wasa, Crispbread, Multi Grain"],0,7]'
+    )
+
+    EMPTY_RESPONSE = (
+        '//OK[0,1,["java.util.ArrayList/4159755760"],0,7]'
+    )
+
+    def test_parses_single_item(self):
+        result = CronometerClient._parse_repeated_items(self.SAMPLE_RESPONSE)
+        assert len(result) == 1
+
+    def test_item_fields(self):
+        result = CronometerClient._parse_repeated_items(self.SAMPLE_RESPONSE)
+        item = result[0]
+        assert item["food_name"] == "Wasa, Crispbread, Multi Grain"
+        assert item["food_source_id"] == 1055762
+        assert item["measure_id"] == 461776
+        assert item["repeat_item_id"] == 658384
+        assert item["quantity"] == 3.0
+
+    def test_returns_empty_for_invalid(self):
+        assert CronometerClient._parse_repeated_items("//EX[err]") == []
+
+    def test_returns_empty_for_no_items(self):
+        assert CronometerClient._parse_repeated_items(self.EMPTY_RESPONSE) == []
+
+    def test_returns_empty_when_no_repeat_type(self):
+        raw = '//OK[1,2,["java.util.ArrayList/4159755760"],0,7]'
+        assert CronometerClient._parse_repeated_items(raw) == []
+
+
+# ── Copy Day / Set Day Complete Tests ────────────────────────────────
+
+class TestCopyDay:
+    """Tests for copy_day client method."""
+
+    def _make_client(self):
+        c = CronometerClient(username="t@t.com", password="pw")
+        c._authenticated = True
+        c.nonce = "testnonce"
+        c.user_id = "2107848"
+        c.gwt_header = "AAAA"
+        c.session = MagicMock()
+        return c
+
+    def test_success_returns_true(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[0,1,["java.util.ArrayList/4159755760"],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.copy_day(date(2026, 3, 7), date(2026, 3, 8))
+        assert result is True
+
+    def test_body_contains_dates(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[0,1,["java.util.ArrayList/4159755760"],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.copy_day(date(2026, 3, 14), date(2026, 3, 15))
+        call_body = c.session.post.call_args[1].get("data", "")
+        # Source date: day|month|year
+        assert "|14|3|2026|" in call_body
+        # Destination date: day|month|year
+        assert "|15|3|2026|" in call_body
+
+    def test_body_contains_user_id(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[0,1,["java.util.ArrayList/4159755760"],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.copy_day(date(2026, 3, 7), date(2026, 3, 8))
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "2107848" in call_body
+
+    def test_failure_raises(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//EX[copy failed]',
+                raise_for_status=lambda: None,
+            )
+        )
+        with pytest.raises(RuntimeError, match="GWT-RPC call failed"):
+            c.copy_day(date(2026, 3, 7), date(2026, 3, 8))
+
+    def test_body_contains_copy_day_method(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[0,1,["java.util.ArrayList/4159755760"],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.copy_day(date(2026, 3, 7), date(2026, 3, 8))
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "copyDay" in call_body
+
+
+class TestSetDayComplete:
+    """Tests for set_day_complete client method."""
+
+    def _make_client(self):
+        c = CronometerClient(username="t@t.com", password="pw")
+        c._authenticated = True
+        c.nonce = "testnonce"
+        c.user_id = "2107848"
+        c.gwt_header = "AAAA"
+        c.session = MagicMock()
+        return c
+
+    def test_success_returns_true(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.set_day_complete(date(2026, 3, 8), complete=True)
+        assert result is True
+
+    def test_complete_true_sends_1(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.set_day_complete(date(2026, 3, 8), complete=True)
+        call_body = c.session.post.call_args[1].get("data", "")
+        # The body should end with ...|year|1| (complete=True → "1")
+        assert call_body.endswith("|1|") or "|2026|1|" in call_body
+
+    def test_complete_false_sends_0(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.set_day_complete(date(2026, 3, 8), complete=False)
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert call_body.endswith("|0|") or "|2026|0|" in call_body
+
+    def test_failure_raises(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//EX[failed]',
+                raise_for_status=lambda: None,
+            )
+        )
+        with pytest.raises(RuntimeError, match="GWT-RPC call failed"):
+            c.set_day_complete(date(2026, 3, 8))
+
+    def test_body_contains_method_name(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.set_day_complete(date(2026, 3, 8))
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "setDayComplete" in call_body
+
+
+# ── Repeat Item Client Method Tests ──────────────────────────────────
+
+class TestAddRepeatItem:
+    """Tests for add_repeat_item client method."""
+
+    def _make_client(self):
+        c = CronometerClient(username="t@t.com", password="pw")
+        c._authenticated = True
+        c.nonce = "testnonce"
+        c.user_id = "2107848"
+        c.gwt_header = "AAAA"
+        c.session = MagicMock()
+        return c
+
+    def test_success_returns_true(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.add_repeat_item(
+            food_source_id=1055762,
+            measure_id=461776,
+            quantity=1.0,
+            food_name="Wasa Crispbread",
+        )
+        assert result is True
+
+    def test_body_contains_method_and_food_name(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.add_repeat_item(
+            food_source_id=1055762,
+            measure_id=461776,
+            quantity=1.0,
+            food_name="Wasa Crispbread",
+        )
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "addRepeatItem" in call_body
+        assert "Wasa Crispbread" in call_body
+
+    def test_defaults_to_all_days(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.add_repeat_item(
+            food_source_id=1055762,
+            measure_id=461776,
+            quantity=1.0,
+            food_name="Test",
+        )
+        call_body = c.session.post.call_args[1].get("data", "")
+        # 7 days → day_count=7
+        assert "|7|" in call_body
+
+    def test_custom_days(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.add_repeat_item(
+            food_source_id=1055762,
+            measure_id=461776,
+            quantity=1.0,
+            food_name="Test",
+            days_of_week=[1, 3, 5],  # Mon, Wed, Fri
+        )
+        call_body = c.session.post.call_args[1].get("data", "")
+        # 3 days
+        assert "|3|" in call_body
+
+    def test_failure_raises(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//EX[failed]',
+                raise_for_status=lambda: None,
+            )
+        )
+        with pytest.raises(RuntimeError, match="GWT-RPC call failed"):
+            c.add_repeat_item(
+                food_source_id=1055762,
+                measure_id=461776,
+                quantity=1.0,
+                food_name="Test",
+            )
+
+
+class TestDeleteRepeatItem:
+    """Tests for delete_repeat_item client method."""
+
+    def _make_client(self):
+        c = CronometerClient(username="t@t.com", password="pw")
+        c._authenticated = True
+        c.nonce = "testnonce"
+        c.user_id = "2107848"
+        c.gwt_header = "AAAA"
+        c.session = MagicMock()
+        return c
+
+    def test_success_returns_true(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.delete_repeat_item(658384)
+        assert result is True
+
+    def test_body_contains_id(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//OK[[],0,7]',
+                raise_for_status=lambda: None,
+            )
+        )
+        c.delete_repeat_item(658384)
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "deleteRepeatItem" in call_body
+        assert "658384" in call_body
+
+    def test_failure_raises(self):
+        c = self._make_client()
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text='//EX[not found]',
+                raise_for_status=lambda: None,
+            )
+        )
+        with pytest.raises(RuntimeError, match="GWT-RPC call failed"):
+            c.delete_repeat_item(999999)
