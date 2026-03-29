@@ -44,23 +44,55 @@ def _parse_date(d: str | None) -> date | None:
 
 # Non-nutrient metadata columns to exclude from nutrient extraction
 _META_COLS = {
-    "Day", "Date", "Time", "Group", "Food Name", "Amount", "Unit",
-    "Category", "Completed",
+    "Day",
+    "Date",
+    "Time",
+    "Group",
+    "Food Name",
+    "Amount",
+    "Unit",
+    "Category",
+    "Completed",
 }
 
 # Macro columns (energy + macronutrients)
 _MACRO_KEYWORDS = {
-    "Energy", "Protein", "Carbs", "Fat", "Fiber", "Net Carbs",
-    "Sugars", "Sugar Alcohol", "Starch", "Saturated", "Monounsaturated",
-    "Polyunsaturated", "Trans-Fats", "Cholesterol", "Sodium", "Potassium",
-    "Water", "Alcohol", "Caffeine", "Omega-3", "Omega-6",
+    "Energy",
+    "Protein",
+    "Carbs",
+    "Fat",
+    "Fiber",
+    "Net Carbs",
+    "Sugars",
+    "Sugar Alcohol",
+    "Starch",
+    "Saturated",
+    "Monounsaturated",
+    "Polyunsaturated",
+    "Trans-Fats",
+    "Cholesterol",
+    "Sodium",
+    "Potassium",
+    "Water",
+    "Alcohol",
+    "Caffeine",
+    "Omega-3",
+    "Omega-6",
 }
 
 # Amino acid columns
 _AMINO_KEYWORDS = {
-    "Cystine", "Histidine", "Isoleucine", "Leucine", "Lysine",
-    "Methionine", "Phenylalanine", "Threonine", "Tryptophan",
-    "Tyrosine", "Valine",
+    "Cystine",
+    "Histidine",
+    "Isoleucine",
+    "Leucine",
+    "Lysine",
+    "Methionine",
+    "Phenylalanine",
+    "Threonine",
+    "Tryptophan",
+    "Tyrosine",
+    "Valine",
 }
 
 
@@ -140,32 +172,35 @@ def get_food_log(
             d = entry["date"]
             by_date.setdefault(d, []).append(entry)
 
-        return json.dumps({
-            "status": "success",
-            "date_range": {
-                "start": start_date or str(date.today()),
-                "end": end_date or str(date.today()),
+        return json.dumps(
+            {
+                "status": "success",
+                "date_range": {
+                    "start": start_date or str(date.today()),
+                    "end": end_date or str(date.today()),
+                },
+                "total_entries": len(formatted),
+                "days": {
+                    d: {
+                        "entries": entries,
+                        "total_calories": round(
+                            sum(e["macros"].get("Energy (kcal)", 0) for e in entries), 1
+                        ),
+                        "total_protein": round(
+                            sum(e["macros"].get("Protein (g)", 0) for e in entries), 1
+                        ),
+                        "total_carbs": round(
+                            sum(e["macros"].get("Carbs (g)", 0) for e in entries), 1
+                        ),
+                        "total_fat": round(
+                            sum(e["macros"].get("Fat (g)", 0) for e in entries), 1
+                        ),
+                    }
+                    for d, entries in by_date.items()
+                },
             },
-            "total_entries": len(formatted),
-            "days": {
-                d: {
-                    "entries": entries,
-                    "total_calories": round(sum(
-                        e["macros"].get("Energy (kcal)", 0) for e in entries
-                    ), 1),
-                    "total_protein": round(sum(
-                        e["macros"].get("Protein (g)", 0) for e in entries
-                    ), 1),
-                    "total_carbs": round(sum(
-                        e["macros"].get("Carbs (g)", 0) for e in entries
-                    ), 1),
-                    "total_fat": round(sum(
-                        e["macros"].get("Fat (g)", 0) for e in entries
-                    ), 1),
-                }
-                for d, entries in by_date.items()
-            },
-        }, indent=2)
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -192,20 +227,25 @@ def get_daily_nutrition(
 
         summaries = []
         for row in rows:
-            summaries.append({
-                "date": row.get("Date", ""),
-                "macros": _extract_nutrients(row, "macro"),
-                "micros": _extract_nutrients(row, "micro"),
-            })
+            summaries.append(
+                {
+                    "date": row.get("Date", ""),
+                    "macros": _extract_nutrients(row, "macro"),
+                    "micros": _extract_nutrients(row, "micro"),
+                }
+            )
 
-        return json.dumps({
-            "status": "success",
-            "date_range": {
-                "start": str(start),
-                "end": str(end or date.today()),
+        return json.dumps(
+            {
+                "status": "success",
+                "date_range": {
+                    "start": str(start),
+                    "end": str(end or date.today()),
+                },
+                "days": summaries,
             },
-            "days": summaries,
-        }, indent=2)
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -234,10 +274,12 @@ def get_micronutrients(
         for row in rows:
             micros = _extract_nutrients(row, "micro")
             if micros:
-                days.append({
-                    "date": row.get("Date", ""),
-                    "micronutrients": micros,
-                })
+                days.append(
+                    {
+                        "date": row.get("Date", ""),
+                        "micronutrients": micros,
+                    }
+                )
 
         # Compute averages across the range
         averages = {}
@@ -255,15 +297,18 @@ def get_micronutrients(
                 if vals:
                     averages[key] = round(sum(vals) / len(vals), 2)
 
-        return json.dumps({
-            "status": "success",
-            "date_range": {
-                "start": str(start),
-                "end": str(end or date.today()),
+        return json.dumps(
+            {
+                "status": "success",
+                "date_range": {
+                    "start": str(start),
+                    "end": str(end or date.today()),
+                },
+                "daily_breakdown": days,
+                "period_averages": averages,
             },
-            "daily_breakdown": days,
-            "period_averages": averages,
-        }, indent=2)
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -290,12 +335,14 @@ def export_raw_csv(
         end = _parse_date(end_date)
         raw = client.export_raw(export_type, start, end)
         if len(raw) > 50000:
-            return json.dumps({
-                "status": "success",
-                "truncated": True,
-                "total_chars": len(raw),
-                "data": raw[:50000] + "\n... (truncated)",
-            })
+            return json.dumps(
+                {
+                    "status": "success",
+                    "truncated": True,
+                    "total_chars": len(raw),
+                    "data": raw[:50000] + "\n... (truncated)",
+                }
+            )
         return json.dumps({"status": "success", "data": raw})
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
@@ -394,18 +441,21 @@ def add_food_entry(
         group_key = diary_group.strip().lower()
         group_int = _DIARY_GROUP_MAP.get(group_key)
         if group_int is None:
-            return json.dumps({
-                "status": "error",
-                "message": (
-                    f"Invalid diary_group '{diary_group}'. "
-                    "Must be one of: Breakfast, Lunch, Dinner, Snacks."
-                ),
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": (
+                        f"Invalid diary_group '{diary_group}'. "
+                        "Must be one of: Breakfast, Lunch, Dinner, Snacks."
+                    ),
+                }
+            )
 
         if measure_id == 0 and quantity == 0:
             quantity = weight_grams
 
         from datetime import date as date_type
+
         log_date = date_type.fromisoformat(date)
 
         client = _get_client()
@@ -418,14 +468,17 @@ def add_food_entry(
             day=log_date,
             diary_group=group_int,
         )
-        return json.dumps({
-            "status": "success",
-            "entry": result,
-            "note": (
-                "Use the serving_id to remove this entry with remove_food_entry "
-                "if needed."
-            ),
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "entry": result,
+                "note": (
+                    "Use the serving_id to remove this entry with remove_food_entry "
+                    "if needed."
+                ),
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -440,11 +493,93 @@ def remove_food_entry(serving_id: str) -> str:
     try:
         client = _get_client()
         client.remove_serving(serving_id)
-        return json.dumps({
-            "status": "success",
-            "serving_id": serving_id,
-            "message": "Serving removed from diary.",
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "serving_id": serving_id,
+                "message": "Serving removed from diary.",
+            },
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+_DIARY_GROUP_NAMES = {
+    0: "Uncategorized",
+    1: "Breakfast",
+    2: "Lunch",
+    3: "Dinner",
+    4: "Snacks",
+}
+
+
+@mcp.tool()
+def get_diary_entries(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
+    """Get diary entries with serving IDs for a date range.
+
+    Returns every food entry with its serving_id, food_source_id,
+    food_category_id, measure_id, quantity, and diary group. The
+    serving_id is required by remove_food_entry to delete entries.
+
+    This is the primary tool for reading diary entries when you need
+    to identify, modify, or replace specific entries.
+
+    Args:
+        start_date: Start date as YYYY-MM-DD (defaults to today).
+        end_date: End date as YYYY-MM-DD (defaults to start_date).
+    """
+    try:
+        client = _get_client()
+        start = _parse_date(start_date) or date.today()
+        end = _parse_date(end_date) or start
+
+        if end < start:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "end_date must be >= start_date",
+                }
+            )
+
+        all_entries: dict[str, list] = {}
+        current = start
+        while current <= end:
+            servings = client.get_day_info(current)
+            day_str = current.isoformat()
+            entries = []
+            for s in servings:
+                entries.append(
+                    {
+                        "serving_id": s["serving_id"],
+                        "food_source_id": s["food_source_id"],
+                        "food_category_id": s["food_category_id"],
+                        "measure_id": s["measure_id"],
+                        "quantity": s["quantity"],
+                        "diary_group": _DIARY_GROUP_NAMES.get(
+                            s["diary_group"], f"Group {s['diary_group']}"
+                        ),
+                    }
+                )
+            all_entries[day_str] = entries
+            current += timedelta(days=1)
+
+        total = sum(len(v) for v in all_entries.values())
+        return json.dumps(
+            {
+                "status": "success",
+                "date_range": {
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                },
+                "total_entries": total,
+                "days": all_entries,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -467,20 +602,26 @@ def get_macro_targets(
 
         if target_date == "all":
             schedules = client.get_all_macro_schedules()
-            return json.dumps({
-                "status": "success",
-                "type": "weekly_schedule",
-                "schedules": schedules,
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "success",
+                    "type": "weekly_schedule",
+                    "schedules": schedules,
+                },
+                indent=2,
+            )
 
         day = _parse_date(target_date)
         targets = client.get_daily_macro_targets(day)
-        return json.dumps({
-            "status": "success",
-            "type": "daily_targets",
-            "date": target_date or str(date.today()),
-            "targets": targets,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "type": "daily_targets",
+                "date": target_date or str(date.today()),
+                "targets": targets,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -516,7 +657,9 @@ def set_macro_targets(
         # Read current targets to preserve unchanged values
         current = client.get_daily_macro_targets(day)
 
-        new_protein = protein_grams if protein_grams is not None else current["protein_g"]
+        new_protein = (
+            protein_grams if protein_grams is not None else current["protein_g"]
+        )
         new_fat = fat_grams if fat_grams is not None else current["fat_g"]
         new_carbs = carbs_grams if carbs_grams is not None else current["carbs_g"]
         new_calories = calories if calories is not None else current["calories"]
@@ -533,18 +676,28 @@ def set_macro_targets(
 
         # Read back to confirm
         updated = client.get_daily_macro_targets(day)
-        return json.dumps({
-            "status": "success",
-            "date": str(day),
-            "previous": current,
-            "updated": updated,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "date": str(day),
+                "previous": current,
+                "updated": updated,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
 
-_DOW_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday",
-              "Thursday", "Friday", "Saturday"]
+_DOW_NAMES = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+]
 
 
 @mcp.tool()
@@ -575,11 +728,14 @@ def set_weekly_macro_schedule(
         template_map = {t["template_name"]: t for t in templates}
 
         if template_name not in template_map:
-            return json.dumps({
-                "status": "error",
-                "message": f"Template '{template_name}' not found.",
-                "available_templates": [t["template_name"] for t in templates],
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Template '{template_name}' not found.",
+                    "available_templates": [t["template_name"] for t in templates],
+                },
+                indent=2,
+            )
 
         template_id = template_map[template_name]["template_id"]
 
@@ -594,30 +750,38 @@ def set_weekly_macro_schedule(
                 if d in day_name_map:
                     target_days.append(day_name_map[d])
                 else:
-                    return json.dumps({
-                        "status": "error",
-                        "message": f"Invalid day name: '{d}'",
-                        "valid_days": _DOW_NAMES,
-                    }, indent=2)
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "message": f"Invalid day name: '{d}'",
+                            "valid_days": _DOW_NAMES,
+                        },
+                        indent=2,
+                    )
 
         # Apply template to each day
         results = []
         for dow in target_days:
             client.save_macro_schedule(dow, template_id)
-            results.append({
-                "day": _DOW_NAMES[dow],
-                "template_name": template_name,
-                "template_id": template_id,
-            })
+            results.append(
+                {
+                    "day": _DOW_NAMES[dow],
+                    "template_name": template_name,
+                    "template_id": template_id,
+                }
+            )
 
         # Read back the full schedule to confirm
         updated_schedule = client.get_all_macro_schedules()
 
-        return json.dumps({
-            "status": "success",
-            "days_updated": results,
-            "current_schedule": updated_schedule,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "days_updated": results,
+                "current_schedule": updated_schedule,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -632,11 +796,14 @@ def list_macro_templates() -> str:
     try:
         client = _get_client()
         templates = client.get_macro_target_templates()
-        return json.dumps({
-            "status": "success",
-            "count": len(templates),
-            "templates": templates,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "count": len(templates),
+                "templates": templates,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -670,15 +837,18 @@ def create_macro_template(
         existing = client.get_macro_target_templates()
         for t in existing:
             if t["template_name"] == template_name:
-                return json.dumps({
-                    "status": "error",
-                    "message": (
-                        f"Template '{template_name}' already exists "
-                        f"(id={t['template_id']}). Use set_weekly_macro_schedule "
-                        "to assign it to days."
-                    ),
-                    "existing_template": t,
-                }, indent=2)
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": (
+                            f"Template '{template_name}' already exists "
+                            f"(id={t['template_id']}). Use set_weekly_macro_schedule "
+                            "to assign it to days."
+                        ),
+                        "existing_template": t,
+                    },
+                    indent=2,
+                )
 
         # Create the template
         template_id = client.save_macro_target_template(
@@ -741,13 +911,16 @@ def get_fasting_history(
         active = [f for f in fasts if f.get("is_active")]
         completed = [f for f in fasts if not f.get("is_active")]
 
-        return json.dumps({
-            "status": "success",
-            "total_fasts": len(fasts),
-            "active_fasts": len(active),
-            "completed_fasts": len(completed),
-            "fasts": fasts,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "total_fasts": len(fasts),
+                "active_fasts": len(active),
+                "completed_fasts": len(completed),
+                "fasts": fasts,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -762,10 +935,13 @@ def get_fasting_stats() -> str:
     try:
         client = _get_client()
         stats = client.get_fasting_stats()
-        return json.dumps({
-            "status": "success",
-            "stats": stats,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "stats": stats,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -782,11 +958,14 @@ def delete_fast(fast_id: int) -> str:
     try:
         client = _get_client()
         client.delete_fast(fast_id)
-        return json.dumps({
-            "status": "success",
-            "fast_id": fast_id,
-            "message": "Fast deleted.",
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "fast_id": fast_id,
+                "message": "Fast deleted.",
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -803,11 +982,14 @@ def cancel_active_fast(fast_id: int) -> str:
     try:
         client = _get_client()
         client.cancel_fast_keep_series(fast_id)
-        return json.dumps({
-            "status": "success",
-            "fast_id": fast_id,
-            "message": "Active fast cancelled. Recurring schedule preserved.",
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "fast_id": fast_id,
+                "message": "Active fast cancelled. Recurring schedule preserved.",
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -822,11 +1004,14 @@ def get_recent_biometrics() -> str:
     try:
         client = _get_client()
         biometrics = client.get_recent_biometrics()
-        return json.dumps({
-            "status": "success",
-            "count": len(biometrics),
-            "biometrics": biometrics,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "count": len(biometrics),
+                "biometrics": biometrics,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -857,14 +1042,17 @@ def add_biometric(
             value=value,
             day=day,
         )
-        return json.dumps({
-            "status": "success",
-            "metric_type": metric_type,
-            "value": value,
-            "date": entry_date,
-            "biometric_id": biometric_id,
-            "note": "Use biometric_id with remove_biometric to delete this entry.",
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "metric_type": metric_type,
+                "value": value,
+                "date": entry_date,
+                "biometric_id": biometric_id,
+                "note": "Use biometric_id with remove_biometric to delete this entry.",
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -881,11 +1069,14 @@ def remove_biometric(biometric_id: str) -> str:
     try:
         client = _get_client()
         client.remove_biometric(biometric_id)
-        return json.dumps({
-            "status": "success",
-            "biometric_id": biometric_id,
-            "message": "Biometric entry removed.",
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "biometric_id": biometric_id,
+                "message": "Biometric entry removed.",
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -954,23 +1145,30 @@ def sync_cronometer(
         # Generate food-log.md
         food_log_path = data_dir / "food-log.md"
         md_content = generate_food_log_md(
-            servings, daily_summary, start, end, diet_label=diet_label,
+            servings,
+            daily_summary,
+            start,
+            end,
+            diet_label=diet_label,
         )
         food_log_path.write_text(md_content)
 
-        return json.dumps({
-            "status": "success",
-            "date_range": {"start": str(start), "end": str(end)},
-            "servings_count": len(servings),
-            "days_count": len(daily_summary),
-            "files_saved": [
-                str(servings_path),
-                str(summary_path),
-                str(latest_servings),
-                str(latest_summary),
-                str(food_log_path),
-            ],
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "date_range": {"start": str(start), "end": str(end)},
+                "servings_count": len(servings),
+                "days_count": len(daily_summary),
+                "files_saved": [
+                    str(servings_path),
+                    str(summary_path),
+                    str(latest_servings),
+                    str(latest_summary),
+                    str(food_log_path),
+                ],
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -989,16 +1187,20 @@ def copy_day(source_date: str, destination_date: str) -> str:
     """
     try:
         from datetime import date as date_type
+
         src = date_type.fromisoformat(source_date)
         dst = date_type.fromisoformat(destination_date)
         client = _get_client()
         client.copy_day(src, dst)
-        return json.dumps({
-            "status": "success",
-            "message": f"Copied all entries from {source_date} to {destination_date}.",
-            "source_date": source_date,
-            "destination_date": destination_date,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "message": f"Copied all entries from {source_date} to {destination_date}.",
+                "source_date": source_date,
+                "destination_date": destination_date,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -1013,16 +1215,20 @@ def set_day_complete(date: str, complete: bool = True) -> str:
     """
     try:
         from datetime import date as date_type
+
         day = date_type.fromisoformat(date)
         client = _get_client()
         client.set_day_complete(day, complete)
         status = "complete" if complete else "incomplete"
-        return json.dumps({
-            "status": "success",
-            "message": f"Marked {date} as {status}.",
-            "date": date,
-            "complete": complete,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "message": f"Marked {date} as {status}.",
+                "date": date,
+                "complete": complete,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -1038,11 +1244,14 @@ def get_repeated_items() -> str:
     try:
         client = _get_client()
         items = client.get_repeated_items()
-        return json.dumps({
-            "status": "success",
-            "count": len(items),
-            "items": items,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "count": len(items),
+                "items": items,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -1076,13 +1285,15 @@ def add_repeat_item(
         group_key = diary_group.strip().lower()
         group_int = _DIARY_GROUP_MAP.get(group_key)
         if group_int is None:
-            return json.dumps({
-                "status": "error",
-                "message": (
-                    f"Invalid diary_group '{diary_group}'. "
-                    "Must be one of: Breakfast, Lunch, Dinner, Snacks."
-                ),
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": (
+                        f"Invalid diary_group '{diary_group}'. "
+                        "Must be one of: Breakfast, Lunch, Dinner, Snacks."
+                    ),
+                }
+            )
 
         # Parse days_of_week
         days_str = days_of_week.strip().lower()
@@ -1106,14 +1317,17 @@ def add_repeat_item(
         )
         day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         day_labels = [day_names[d] for d in days]
-        return json.dumps({
-            "status": "success",
-            "message": f"Added '{food_name}' as recurring entry.",
-            "food_name": food_name,
-            "diary_group": diary_group,
-            "days": day_labels,
-            "quantity": quantity,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "message": f"Added '{food_name}' as recurring entry.",
+                "food_name": food_name,
+                "diary_group": diary_group,
+                "days": day_labels,
+                "quantity": quantity,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 
@@ -1130,11 +1344,14 @@ def delete_repeat_item(repeat_item_id: int) -> str:
     try:
         client = _get_client()
         client.delete_repeat_item(repeat_item_id)
-        return json.dumps({
-            "status": "success",
-            "message": f"Deleted repeat item {repeat_item_id}.",
-            "repeat_item_id": repeat_item_id,
-        }, indent=2)
+        return json.dumps(
+            {
+                "status": "success",
+                "message": f"Deleted repeat item {repeat_item_id}.",
+                "repeat_item_id": repeat_item_id,
+            },
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
 

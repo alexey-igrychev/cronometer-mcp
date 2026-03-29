@@ -34,7 +34,8 @@ class TestClientInit:
 
     def test_custom_gwt_values(self):
         c = CronometerClient(
-            username="a@b.com", password="pw",
+            username="a@b.com",
+            password="pw",
             gwt_permutation="CUSTOM_PERM",
             gwt_header="CUSTOM_HDR",
         )
@@ -128,12 +129,14 @@ class TestAuthentication:
         assert token == "abc-token-123"
 
     def test_authenticate_full_flow(self, client):
-        with patch.object(client, "_restore_session", return_value=False) as m0, \
-             patch.object(client, "_discover_gwt_hashes") as md, \
-             patch.object(client, "_get_anticsrf", return_value="csrf") as m1, \
-             patch.object(client, "_login") as m2, \
-             patch.object(client, "_gwt_authenticate") as m3, \
-             patch.object(client, "_save_session") as m4:
+        with (
+            patch.object(client, "_restore_session", return_value=False) as m0,
+            patch.object(client, "_discover_gwt_hashes") as md,
+            patch.object(client, "_get_anticsrf", return_value="csrf") as m1,
+            patch.object(client, "_login") as m2,
+            patch.object(client, "_gwt_authenticate") as m3,
+            patch.object(client, "_save_session") as m4,
+        ):
             client.authenticate()
             m0.assert_called_once()
             md.assert_called_once()
@@ -144,8 +147,10 @@ class TestAuthentication:
             assert client._authenticated
 
     def test_authenticate_restores_session(self, client):
-        with patch.object(client, "_restore_session", return_value=True) as m0, \
-             patch.object(client, "_get_anticsrf") as m1:
+        with (
+            patch.object(client, "_restore_session", return_value=True) as m0,
+            patch.object(client, "_get_anticsrf") as m1,
+        ):
             client.authenticate()
             m0.assert_called_once()
             m1.assert_not_called()
@@ -178,6 +183,7 @@ class TestExports:
 # ---------------------------------------------------------------------------
 # Helper to build synthetic GWT-RPC findFoods responses for unit tests.
 # ---------------------------------------------------------------------------
+
 
 def _build_find_foods_response(foods: list[dict]) -> str:
     """Build a minimal //OK[...] findFoods response from a list of food specs.
@@ -240,7 +246,7 @@ def _build_find_foods_response(foods: list[dict]) -> str:
     for refs in food_refs:
         data_tokens += [
             refs["score"],
-            0,                      # flags
+            0,  # flags
             refs["name_ref"],
             refs["food_id"],
             refs["measure_ref"],
@@ -248,14 +254,15 @@ def _build_find_foods_response(foods: list[dict]) -> str:
             refs["food_source_id"],
             refs["popularity"],
             refs["kw_ref"],
-            searchhit_type_idx,     # SearchHit class ref
-            3,                      # FoodSource class ref
-            0,                      # FoodSource ordinal
-            4,                      # FoodType class ref
-            0,                      # FoodType ordinal
+            searchhit_type_idx,  # SearchHit class ref
+            3,  # FoodSource class ref
+            0,  # FoodSource ordinal
+            4,  # FoodType class ref
+            0,  # FoodType ordinal
         ]
 
     import json as _json
+
     st_json = _json.dumps(string_table)
     tokens_str = ",".join(str(t) for t in data_tokens)
     return f"//OK[{tokens_str},{st_json},0,7]"
@@ -294,6 +301,7 @@ class TestParseFindFoods:
             "egg whole cooked omelet",
         ]
         import json as _json
+
         st_json = _json.dumps(string_table)
 
         # Data tokens assembled manually per spec:
@@ -413,7 +421,11 @@ class TestParseFindFoods:
         )
         result = self._parse(raw)[0]
         assert set(result.keys()) == {
-            "food_id", "food_source_id", "name", "measure_desc", "score"
+            "food_id",
+            "food_source_id",
+            "name",
+            "measure_desc",
+            "score",
         }
 
     def test_measure_desc_preserved(self):
@@ -463,8 +475,9 @@ class TestParseFindFoods:
     def test_zero_results_no_searchhit_in_string_table(self):
         """A string table with no SearchHit entry → empty list."""
         import json as _json
+
         st = ["java.util.ArrayList/4159755760", "some.other.Class/12345"]
-        raw = f'//OK[2,0,1,{_json.dumps(st)},0,7]'
+        raw = f"//OK[2,0,1,{_json.dumps(st)},0,7]"
         assert self._parse(raw) == []
 
     # ------------------------------------------------------------------
@@ -481,7 +494,7 @@ class TestParseFindFoods:
 
     def test_raises_on_invalid_json_string_table(self):
         # Corrupt the string table JSON.
-        raw = '//OK[1,[broken json,0,7]'
+        raw = "//OK[1,[broken json,0,7]"
         with pytest.raises(Exception):
             self._parse(raw)
 
@@ -493,12 +506,13 @@ class TestParseFindFoods:
         """A SearchHit type index appearing before 9 tokens are available
         must be silently skipped, not cause an IndexError."""
         import json as _json
+
         # Put the SearchHit type ref (2) as the very first data token.
         st = [
             "java.util.ArrayList/4159755760",
             "com.cronometer.shared.foods.SearchHit/1606796888",
         ]
-        raw = f'//OK[2,{_json.dumps(st)},0,7]'
+        raw = f"//OK[2,{_json.dumps(st)},0,7]"
         # The token '2' at index 0 cannot look back 9 positions → skip it.
         assert self._parse(raw) == []
 
@@ -571,9 +585,7 @@ class TestFindFoodsIntegration:
         client.nonce = "n"
         client.user_id = "42"
         client.session.post = MagicMock(
-            return_value=MagicMock(
-                text=raw, raise_for_status=lambda: None
-            )
+            return_value=MagicMock(text=raw, raise_for_status=lambda: None)
         )
 
         results = client.find_foods("broccoli")
@@ -589,9 +601,7 @@ class TestFindFoodsIntegration:
         client.nonce = "n"
         client.user_id = "42"
         client.session.post = MagicMock(
-            return_value=MagicMock(
-                text=raw, raise_for_status=lambda: None
-            )
+            return_value=MagicMock(text=raw, raise_for_status=lambda: None)
         )
 
         results = client.find_foods("xyzzy_no_match")
@@ -604,9 +614,7 @@ class TestFindFoodsIntegration:
         client.nonce = "n"
         client.user_id = "42"
         post_mock = MagicMock(
-            return_value=MagicMock(
-                text=raw, raise_for_status=lambda: None
-            )
+            return_value=MagicMock(text=raw, raise_for_status=lambda: None)
         )
         client.session.post = post_mock
 
@@ -620,7 +628,10 @@ class TestFindFoodsIntegration:
 # Helper to build synthetic GWT-RPC getFood responses for unit tests.
 # ---------------------------------------------------------------------------
 
-def _build_get_food_response(measures: list[dict], include_derived: bool = False) -> str:
+
+def _build_get_food_response(
+    measures: list[dict], include_derived: bool = False
+) -> str:
     """Build a minimal //OK[...] getFood response with Measure objects.
 
     Each measure dict must have: description, measure_id, food_source_id, weight_grams
@@ -658,24 +669,32 @@ def _build_get_food_response(measures: list[dict], include_derived: bool = False
         # Layout: weight_grams, ..., Measure$Type ref, ...,
         #         desc_ref, 0, measure_id, food_source_id, 0, 1.0, Measure type ref
         data_tokens += [
-            m["weight_grams"],      # weight_grams (float)
-            0,                       # padding
-            measure_subtype_idx,     # Measure$Type ref
-            0,                       # ordinal
-            desc_ref,                # description (i-6 from Measure type ref)
-            0,                       # flags (i-5)
-            m["measure_id"],         # measure_id (i-4)
-            m["food_source_id"],     # food_source_id (i-3)
-            0,                       # flags (i-2)
-            1.0,                     # quantity (i-1)
-            measure_type_idx,        # Measure type ref (i)
+            m["weight_grams"],  # weight_grams (float)
+            0,  # padding
+            measure_subtype_idx,  # Measure$Type ref
+            0,  # ordinal
+            desc_ref,  # description (i-6 from Measure type ref)
+            0,  # flags (i-5)
+            m["measure_id"],  # measure_id (i-4)
+            m["food_source_id"],  # food_source_id (i-3)
+            0,  # flags (i-2)
+            1.0,  # quantity (i-1)
+            measure_type_idx,  # Measure type ref (i)
         ]
 
     if include_derived:
         derived_type_idx = len(class_names)  # 1-based
         data_tokens += [
-            100.0, 0, measure_subtype_idx, 0,
-            _intern("mL"), 0, 999999, 12345, 0, 1.0,
+            100.0,
+            0,
+            measure_subtype_idx,
+            0,
+            _intern("mL"),
+            0,
+            999999,
+            12345,
+            0,
+            1.0,
             derived_type_idx,
         ]
 
@@ -701,10 +720,16 @@ class TestParseGetFood:
         return CronometerClient._parse_get_food(raw, fsid)
 
     def test_single_nccdb_measure(self):
-        raw = _build_get_food_response([
-            {"description": "1 large - 50g", "measure_id": 65541,
-             "food_source_id": 464674, "weight_grams": 50.0},
-        ])
+        raw = _build_get_food_response(
+            [
+                {
+                    "description": "1 large - 50g",
+                    "measure_id": 65541,
+                    "food_source_id": 464674,
+                    "weight_grams": 50.0,
+                },
+            ]
+        )
         result = self._parse(raw)
         assert len(result["measures"]) == 1
         m = result["measures"][0]
@@ -713,12 +738,22 @@ class TestParseGetFood:
         assert m["weight_grams"] == 50.0
 
     def test_multiple_measures(self):
-        raw = _build_get_food_response([
-            {"description": "1 cup", "measure_id": 100,
-             "food_source_id": 500, "weight_grams": 240.0},
-            {"description": "1 tbsp", "measure_id": 101,
-             "food_source_id": 500, "weight_grams": 15.0},
-        ])
+        raw = _build_get_food_response(
+            [
+                {
+                    "description": "1 cup",
+                    "measure_id": 100,
+                    "food_source_id": 500,
+                    "weight_grams": 240.0,
+                },
+                {
+                    "description": "1 tbsp",
+                    "measure_id": 101,
+                    "food_source_id": 500,
+                    "weight_grams": 15.0,
+                },
+            ]
+        )
         result = self._parse(raw)
         assert len(result["measures"]) == 2
         ids = {m["measure_id"] for m in result["measures"]}
@@ -727,8 +762,14 @@ class TestParseGetFood:
     def test_derived_measure_excluded(self):
         """DerivedMeasure entries must NOT appear in the measures list."""
         raw = _build_get_food_response(
-            [{"description": "1 tbsp", "measure_id": 200,
-              "food_source_id": 500, "weight_grams": 14.0}],
+            [
+                {
+                    "description": "1 tbsp",
+                    "measure_id": 200,
+                    "food_source_id": 500,
+                    "weight_grams": 14.0,
+                }
+            ],
             include_derived=True,
         )
         result = self._parse(raw)
@@ -743,16 +784,23 @@ class TestParseGetFood:
 
     def test_no_measure_in_string_table(self):
         import json as _json
+
         st = ["com.cronometer.shared.foods.models.Food/123"]
-        raw = f'//OK[1,0,{_json.dumps(st)},0,7]'
+        raw = f"//OK[1,0,{_json.dumps(st)},0,7]"
         result = self._parse(raw)
         assert result["measures"] == []
 
     def test_food_source_id_echoed(self):
-        raw = _build_get_food_response([
-            {"description": "1 oz", "measure_id": 300,
-             "food_source_id": 55985, "weight_grams": 28.35},
-        ])
+        raw = _build_get_food_response(
+            [
+                {
+                    "description": "1 oz",
+                    "measure_id": 300,
+                    "food_source_id": 55985,
+                    "weight_grams": 28.35,
+                },
+            ]
+        )
         result = self._parse(raw, fsid=55985)
         assert result["food_source_id"] == 55985
 
@@ -770,7 +818,7 @@ class TestAddServing:
     def _mock_update_response(self, serving_id="D9TEST", food_id=502518, fsid=55985):
         return (
             f'//OK[0,0,{food_id},"{serving_id}",{fsid},170.0,2107848,0,'
-            f'124399,0,1,1,2026,3,5,4,3,2,1,1,'
+            f"124399,0,1,1,2026,3,5,4,3,2,1,1,"
             f'["java.util.ArrayList/4159755760"],0,7]'
         )
 
@@ -783,13 +831,18 @@ class TestAddServing:
         )
 
         result = c.add_serving(
-            food_id=502518, food_source_id=55985,
-            measure_id=0, quantity=170, weight_grams=170,
+            food_id=502518,
+            food_source_id=55985,
+            measure_id=0,
+            quantity=170,
+            weight_grams=170,
             day=date(2026, 3, 5),
         )
 
         # Verify the GWT body uses UNIVERSAL_MEASURE_ID
-        call_body = c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        call_body = (
+            c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        )
         assert str(UNIVERSAL_MEASURE_ID) in call_body
         assert result["serving_id"] == "D9TEST"
 
@@ -802,12 +855,17 @@ class TestAddServing:
         )
 
         c.add_serving(
-            food_id=502518, food_source_id=55985,
-            measure_id=65541, quantity=4, weight_grams=200,
+            food_id=502518,
+            food_source_id=55985,
+            measure_id=65541,
+            quantity=4,
+            weight_grams=200,
             day=date(2026, 3, 5),
         )
 
-        call_body = c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        call_body = (
+            c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        )
         assert "|65541|" in call_body
 
     def test_response_parsing(self):
@@ -820,8 +878,11 @@ class TestAddServing:
         )
 
         result = c.add_serving(
-            food_id=176206122, food_source_id=53718799,
-            measure_id=0, quantity=14, weight_grams=14,
+            food_id=176206122,
+            food_source_id=53718799,
+            measure_id=0,
+            quantity=14,
+            weight_grams=14,
             day=date(2026, 3, 5),
         )
         assert result["serving_id"] == "D9FRtZ"
@@ -837,12 +898,18 @@ class TestAddServing:
         )
 
         c.add_serving(
-            food_id=502518, food_source_id=55985,
-            measure_id=0, quantity=170, weight_grams=170,
-            day=date(2026, 3, 5), diary_group=2,
+            food_id=502518,
+            food_source_id=55985,
+            measure_id=0,
+            quantity=170,
+            weight_grams=170,
+            day=date(2026, 3, 5),
+            diary_group=2,
         )
 
-        call_body = c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        call_body = (
+            c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        )
         # quantity|diary_group|0|measure_id pattern
         assert "|2|0|" in call_body
 
@@ -855,12 +922,17 @@ class TestAddServing:
         )
 
         c.add_serving(
-            food_id=502518, food_source_id=55985,
-            measure_id=0, quantity=170.0, weight_grams=170.0,
+            food_id=502518,
+            food_source_id=55985,
+            measure_id=0,
+            quantity=170.0,
+            weight_grams=170.0,
             day=date(2026, 3, 5),
         )
 
-        call_body = c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        call_body = (
+            c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        )
         # Should contain "170|" not "170.0|"
         assert "170|" in call_body
 
@@ -872,15 +944,15 @@ class TestRemoveServing:
         c.nonce = "n"
         c.user_id = "42"
         c.session.post = MagicMock(
-            return_value=MagicMock(
-                text="//OK[[],0,7]", raise_for_status=lambda: None
-            )
+            return_value=MagicMock(text="//OK[[],0,7]", raise_for_status=lambda: None)
         )
 
         result = c.remove_serving("D9TEST")
         assert result is True
 
-        call_body = c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        call_body = (
+            c.session.post.call_args[1].get("data") or c.session.post.call_args[0][1]
+        )
         assert "D9TEST" in call_body
 
     def test_remove_failure(self):
@@ -916,8 +988,10 @@ class TestSessionPersistence:
         c2 = CronometerClient(username="test@x.com", password="pw")
         c2._cookie_path = cookie_path
 
-        with patch.object(c2, "_discover_gwt_hashes"), \
-             patch.object(c2, "_generate_auth_token", return_value="token"):
+        with (
+            patch.object(c2, "_discover_gwt_hashes"),
+            patch.object(c2, "_generate_auth_token", return_value="token"),
+        ):
             restored = c2._restore_session()
 
         assert restored is True
@@ -942,8 +1016,12 @@ class TestSessionPersistence:
         c2 = CronometerClient(username="test@x.com", password="pw")
         c2._cookie_path = cookie_path
 
-        with patch.object(c2, "_discover_gwt_hashes"), \
-             patch.object(c2, "_generate_auth_token", side_effect=RuntimeError("expired")):
+        with (
+            patch.object(c2, "_discover_gwt_hashes"),
+            patch.object(
+                c2, "_generate_auth_token", side_effect=RuntimeError("expired")
+            ),
+        ):
             restored = c2._restore_session()
 
         assert restored is False
@@ -957,7 +1035,7 @@ class TestParseMacroTargetTemplate:
     """Tests for _parse_macro_target_template static parser."""
 
     SAMPLE_RESPONSE = (
-        '//OK[0,155.0,7,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,6,5,4,3,2,1,'
+        "//OK[0,155.0,7,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,6,5,4,3,2,1,"
         '["java.util.ArrayList/4159755760",'
         '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
         '"java.lang.Boolean/476441737",'
@@ -992,14 +1070,14 @@ class TestParseAllMacroSchedules:
 
     # Captured from live Cronometer (all 7 days = "Keto Rigorous")
     SAMPLE_RESPONSE = (
-        '//OK[0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,4,3,2,'
-        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,1,'
-        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,2,'
-        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,3,'
-        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,4,'
-        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,5,'
-        '0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,6,'
-        '7,1,'
+        "//OK[0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,4,3,2,"
+        "0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,1,"
+        "0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,2,"
+        "0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,3,"
+        "0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,4,"
+        "0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,5,"
+        "0,155.0,7,9,0,0,124947,8,1,0,85.0,7,1970.0,7,0,0,12.0,7,-6,5,6,-4,-3,6,"
+        "7,1,"
         '["java.util.ArrayList/4159755760",'
         '"com.cronometer.shared.targets.models.MacroSchedule/965693762",'
         '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
@@ -1024,8 +1102,13 @@ class TestParseAllMacroSchedules:
         schedules = CronometerClient._parse_all_macro_schedules(self.SAMPLE_RESPONSE)
         names = [s["day_name"] for s in schedules]
         assert names == [
-            "Sunday", "Monday", "Tuesday", "Wednesday",
-            "Thursday", "Friday", "Saturday",
+            "Sunday",
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
         ]
 
     def test_macro_values(self):
@@ -1069,7 +1152,7 @@ class TestGetDailyMacroTargets:
     def test_calls_gwt_post_with_date(self):
         c = self._make_client()
         resp = (
-            '//OK[0,180.0,7,0,0,99999,8,1,0,100.0,7,2200.0,7,0,0,50.0,7,6,5,4,3,2,1,'
+            "//OK[0,180.0,7,0,0,99999,8,1,0,100.0,7,2200.0,7,0,0,50.0,7,6,5,4,3,2,1,"
             '["java.util.ArrayList/4159755760",'
             '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
             '"java.lang.Boolean/476441737",'
@@ -1124,7 +1207,10 @@ class TestUpdateDailyTargets:
         )
         result = c.update_daily_targets(
             day=date(2026, 3, 8),
-            protein_g=180, fat_g=100, carbs_g=50, calories=2200,
+            protein_g=180,
+            fat_g=100,
+            carbs_g=50,
+            calories=2200,
         )
         assert result is True
 
@@ -1132,14 +1218,17 @@ class TestUpdateDailyTargets:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//EX[some error]',
+                text="//EX[some error]",
                 raise_for_status=lambda: None,
             )
         )
         with pytest.raises(RuntimeError, match="GWT-RPC call failed"):
             c.update_daily_targets(
                 day=date(2026, 3, 8),
-                protein_g=180, fat_g=100, carbs_g=50, calories=2200,
+                protein_g=180,
+                fat_g=100,
+                carbs_g=50,
+                calories=2200,
             )
 
     def test_body_contains_values(self):
@@ -1152,7 +1241,10 @@ class TestUpdateDailyTargets:
         )
         c.update_daily_targets(
             day=date(2026, 3, 8),
-            protein_g=180, fat_g=100, carbs_g=50, calories=2200,
+            protein_g=180,
+            fat_g=100,
+            carbs_g=50,
+            calories=2200,
             template_name="My Custom",
         )
         call_body = c.session.post.call_args[1].get("data", "")
@@ -1165,11 +1257,12 @@ class TestUpdateDailyTargets:
 
 # ── Macro Target Templates Parser Tests ──────────────────────────────
 
+
 class TestParseMacroTargetTemplates:
     """Tests for _parse_macro_target_templates static parser."""
 
     SAMPLE_RESPONSE = (
-        '//OK[0,190.0,7,0,0,141154,8,1,0,80.0,7,1800.0,7,0,0,80.0,7,6,5,4,3,2,1,'
+        "//OK[0,190.0,7,0,0,141154,8,1,0,80.0,7,1800.0,7,0,0,80.0,7,6,5,4,3,2,1,"
         '["java.util.ArrayList/4159755760",'
         '"com.cronometer.shared.targets.models.MacroTargetTemplate/3691130822",'
         '"java.lang.Boolean/476441737",'
@@ -1211,11 +1304,12 @@ class TestParseMacroTargetTemplates:
 
 # ── Fasting Parser Tests ─────────────────────────────────────────────
 
+
 class TestParseFastingStats:
     """Tests for _parse_fasting_stats static parser."""
 
     SAMPLE_RESPONSE = (
-        '//OK[120.5,36.0,18.5,15,1,'
+        "//OK[120.5,36.0,18.5,15,1,"
         '["com.cronometer.shared.fasting.FastingStats/1234567890"],0,7]'
     )
 
@@ -1245,9 +1339,7 @@ class TestParseFasts:
         '"16:8 Fast"],0,7]'
     )
 
-    EMPTY_RESPONSE = (
-        '//OK[0,1,["java.util.ArrayList/4159755760"],0,7]'
-    )
+    EMPTY_RESPONSE = '//OK[0,1,["java.util.ArrayList/4159755760"],0,7]'
 
     def test_returns_empty_for_invalid(self):
         assert CronometerClient._parse_fasts("//EX[err]") == []
@@ -1265,6 +1357,7 @@ class TestParseFasts:
 
 
 # ── Biometric Parser Tests ───────────────────────────────────────────
+
 
 class TestParseRecentBiometrics:
     """Tests for _parse_recent_biometrics instance method."""
@@ -1303,21 +1396,20 @@ class TestParseRecentBiometrics:
 
 # ── Repeated Items Parser Tests ──────────────────────────────────────
 
+
 class TestParseRepeatedItems:
     """Tests for _parse_repeated_items static parser."""
 
     # Captured from research: single Wasa crispbread item
     SAMPLE_RESPONSE = (
-        '//OK[0,1055762,461776,658384,1,4,0,1,3,1,1,3.0,2,1,1,'
+        "//OK[0,1055762,461776,658384,1,4,0,1,3,1,1,3.0,2,1,1,"
         '["java.util.ArrayList/4159755760",'
         '"com.cronometer.shared.repeatitems.RepeatItem/477684891",'
         '"java.lang.Integer/3438268394",'
         '"Wasa, Crispbread, Multi Grain"],0,7]'
     )
 
-    EMPTY_RESPONSE = (
-        '//OK[0,1,["java.util.ArrayList/4159755760"],0,7]'
-    )
+    EMPTY_RESPONSE = '//OK[0,1,["java.util.ArrayList/4159755760"],0,7]'
 
     def test_parses_single_item(self):
         result = CronometerClient._parse_repeated_items(self.SAMPLE_RESPONSE)
@@ -1344,6 +1436,7 @@ class TestParseRepeatedItems:
 
 
 # ── Copy Day / Set Day Complete Tests ────────────────────────────────
+
 
 class TestCopyDay:
     """Tests for copy_day client method."""
@@ -1399,7 +1492,7 @@ class TestCopyDay:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//EX[copy failed]',
+                text="//EX[copy failed]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1435,7 +1528,7 @@ class TestSetDayComplete:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1446,7 +1539,7 @@ class TestSetDayComplete:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1459,7 +1552,7 @@ class TestSetDayComplete:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1471,7 +1564,7 @@ class TestSetDayComplete:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//EX[failed]',
+                text="//EX[failed]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1482,7 +1575,7 @@ class TestSetDayComplete:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1492,6 +1585,7 @@ class TestSetDayComplete:
 
 
 # ── Repeat Item Client Method Tests ──────────────────────────────────
+
 
 class TestAddRepeatItem:
     """Tests for add_repeat_item client method."""
@@ -1509,7 +1603,7 @@ class TestAddRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1525,7 +1619,7 @@ class TestAddRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1543,7 +1637,7 @@ class TestAddRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1561,7 +1655,7 @@ class TestAddRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1580,7 +1674,7 @@ class TestAddRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//EX[failed]',
+                text="//EX[failed]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1609,7 +1703,7 @@ class TestDeleteRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1620,7 +1714,7 @@ class TestDeleteRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//OK[[],0,7]',
+                text="//OK[[],0,7]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1633,7 +1727,7 @@ class TestDeleteRepeatItem:
         c = self._make_client()
         c.session.post = MagicMock(
             return_value=MagicMock(
-                text='//EX[not found]',
+                text="//EX[not found]",
                 raise_for_status=lambda: None,
             )
         )
@@ -1644,6 +1738,7 @@ class TestDeleteRepeatItem:
 # ---------------------------------------------------------------------------
 # Session re-authentication tests
 # ---------------------------------------------------------------------------
+
 
 class TestSessionReauth:
     """Tests for automatic re-authentication on expired sessions."""
@@ -1659,33 +1754,37 @@ class TestSessionReauth:
     def test_gwt_post_reauths_on_not_logged_in(self):
         c = self._make_client()
         fail_resp = MagicMock(
-            text='//EX[com.cronometer.shared.user.NotLoggedInException/123]',
+            text="//EX[com.cronometer.shared.user.NotLoggedInException/123]",
             raise_for_status=lambda: None,
         )
         ok_resp = MagicMock(
-            text='//OK[data,0,7]',
+            text="//OK[data,0,7]",
             raise_for_status=lambda: None,
         )
         c.session.post = MagicMock(side_effect=[fail_resp, ok_resp])
         with patch.object(c, "_reauthenticate") as m:
             result = c._gwt_post("body")
         m.assert_called_once()
-        assert result == '//OK[data,0,7]'
+        assert result == "//OK[data,0,7]"
 
     def test_export_raw_reauths_on_403(self):
         c = self._make_client()
-        forbidden = MagicMock(status_code=403, raise_for_status=MagicMock(side_effect=Exception))
+        forbidden = MagicMock(
+            status_code=403, raise_for_status=MagicMock(side_effect=Exception)
+        )
         ok = MagicMock(status_code=200, text="csv-data", raise_for_status=lambda: None)
         c.session.get = MagicMock(side_effect=[forbidden, ok])
-        with patch.object(c, "_reauthenticate"), \
-             patch.object(c, "_generate_auth_token", return_value="fake-token"):
+        with (
+            patch.object(c, "_reauthenticate"),
+            patch.object(c, "_generate_auth_token", return_value="fake-token"),
+        ):
             result = c.export_raw("servings")
         assert result == "csv-data"
 
     def test_reauth_failure_propagates(self):
         c = self._make_client()
         fail_resp = MagicMock(
-            text='//EX[com.cronometer.shared.user.NotLoggedInException/123]',
+            text="//EX[com.cronometer.shared.user.NotLoggedInException/123]",
             raise_for_status=lambda: None,
         )
         c.session.post = MagicMock(return_value=fail_resp)
@@ -1696,7 +1795,7 @@ class TestSessionReauth:
     def test_no_infinite_retry(self):
         c = self._make_client()
         fail_resp = MagicMock(
-            text='//EX[com.cronometer.shared.user.NotLoggedInException/123]',
+            text="//EX[com.cronometer.shared.user.NotLoggedInException/123]",
             raise_for_status=lambda: None,
         )
         c.session.post = MagicMock(return_value=fail_resp)
@@ -1715,3 +1814,300 @@ class TestSessionReauth:
         assert c.nonce is None
         assert c.user_id is None
         m_auth.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# getDayInfo / _parse_day_info tests
+# ---------------------------------------------------------------------------
+
+
+def _build_day_info_response(servings: list[dict], day: tuple = (8, 3, 2026)) -> str:
+    """Build a synthetic getDayInfo //OK[...] response.
+
+    Each serving dict should have:
+        serving_id (str), food_source_id (int), food_category_id (int),
+        measure_id (int), quantity (float), diary_group (int, 1-4),
+        user_id (int, default 2107848).
+
+    The response mimics the real GWT wire format captured in
+    RESEARCH-copy-repeat-gwt-rpc.md (getDayInfo section).
+    """
+    # String table — same order as captured responses.
+    string_table = [
+        "com.cronometer.shared.entries.models.DayInfo/416556043",
+        "com.cronometer.shared.entries.models.Day/782579793",
+        "java.util.ArrayList/4159755760",
+        "com.cronometer.shared.entries.models.Serving/2553599101",
+    ]
+    import json as _json
+
+    serving_type_idx = 4  # 1-based index for Serving class
+
+    # Build data tokens.
+    # DayInfo header: 0, 0, 0 (some metadata), then serving count,
+    # then for each serving: a block of tokens ending with the Serving
+    # type ref (first) or back-ref (subsequent).
+    data_tokens: list = []
+
+    # DayInfo preamble
+    data_tokens += [0, 0, 0]
+
+    # Serving count
+    data_tokens.append(len(servings))
+
+    # Day type ref = 2 (1-based), used inside each serving for the embedded Day.
+    day_type_ref = 2
+
+    for i, s in enumerate(servings):
+        user_id = s.get("user_id", 2107848)
+        # Diary group flags: (diary_group << 16) | item_index_within_group
+        dg_flags = (s["diary_group"] << 16) | (i + 1)
+
+        # Tokens for one Serving object (mimicking captured layout):
+        #   food_category_id, 0, food_source_id, "serving_id",
+        #   measure_id, quantity, user_id, 0, diary_group_flags,
+        #   0, 1, 1, year, month, day,
+        #   Day_type_ref (2 for first, -2 for subsequent),
+        #   Serving_type_ref (4 for first, -4 for subsequent)
+        data_tokens.append(s["food_category_id"])
+        data_tokens.append(0)
+        data_tokens.append(s["food_source_id"])
+        data_tokens.append(f'"{s["serving_id"]}"')  # quoted string
+        data_tokens.append(s["measure_id"])
+        data_tokens.append(s["quantity"])
+        data_tokens.append(user_id)
+        data_tokens.append(0)
+        data_tokens.append(dg_flags)
+        data_tokens.append(0)
+        data_tokens.append(1)
+        data_tokens.append(1)
+        data_tokens.append(day[2])  # year
+        data_tokens.append(day[1])  # month
+        data_tokens.append(day[0])  # day
+        # Day type ref: first serving uses positive, rest use negative back-ref
+        data_tokens.append(day_type_ref if i == 0 else -day_type_ref)
+        # Serving type ref: first uses positive, rest use negative back-ref
+        data_tokens.append(serving_type_idx if i == 0 else -serving_type_idx)
+
+    # DayInfo footer: count, ArrayList_ref(3), year, month, day,
+    # Day_back_ref(-2), 0, 1 (DayInfo type ref = 1)
+    data_tokens += [len(servings), 3, day[2], day[1], day[0], -2, 0, 1]
+
+    # Build the raw response string.
+    # Tokens must be comma-separated; quoted strings keep their quotes.
+    parts = []
+    for t in data_tokens:
+        if isinstance(t, str) and t.startswith('"'):
+            parts.append(t)
+        elif isinstance(t, float):
+            parts.append(str(t))
+        else:
+            parts.append(str(t))
+
+    st_json = _json.dumps(string_table)
+    tokens_str = ",".join(parts)
+    return f"//OK[{tokens_str},{st_json},0,7]"
+
+
+class TestParseDayInfo:
+    """Unit tests for CronometerClient._parse_day_info."""
+
+    def _parse(self, raw: str) -> list[dict]:
+        return CronometerClient._parse_day_info(raw)
+
+    def test_empty_day(self):
+        """An empty day returns //OK[...] with zero servings."""
+        # Minimal empty response: no Serving class in string table
+        raw = '//OK[0,0,0,0,0,3,2026,3,8,-2,0,1,["com.cronometer.shared.entries.models.DayInfo/416556043","com.cronometer.shared.entries.models.Day/782579793","java.util.ArrayList/4159755760"],0,7]'
+        result = self._parse(raw)
+        assert result == []
+
+    def test_single_serving(self):
+        """Parse a single serving from getDayInfo response."""
+        raw = _build_day_info_response(
+            [
+                {
+                    "serving_id": "D9xgQv",
+                    "food_source_id": 1055762,
+                    "food_category_id": 409412,
+                    "measure_id": 461776,
+                    "quantity": 170.0,
+                    "diary_group": 1,  # Breakfast
+                },
+            ]
+        )
+        result = self._parse(raw)
+
+        assert len(result) == 1
+        s = result[0]
+        assert s["serving_id"] == "D9xgQv"
+        assert s["food_source_id"] == 1055762
+        assert s["food_category_id"] == 409412
+        assert s["measure_id"] == 461776
+        assert s["quantity"] == 170.0
+        assert s["diary_group"] == 1
+
+    def test_multiple_servings_different_groups(self):
+        """Parse multiple servings across different diary groups."""
+        raw = _build_day_info_response(
+            [
+                {
+                    "serving_id": "D9xgQv",
+                    "food_source_id": 1055762,
+                    "food_category_id": 409412,
+                    "measure_id": 461776,
+                    "quantity": 170.0,
+                    "diary_group": 1,  # Breakfast
+                },
+                {
+                    "serving_id": "D9xf3f",
+                    "food_source_id": 998804,
+                    "food_category_id": 13263444,
+                    "measure_id": 450836,
+                    "quantity": 42.0,
+                    "diary_group": 2,  # Lunch
+                },
+                {
+                    "serving_id": "DA2kPQ",
+                    "food_source_id": 555111,
+                    "food_category_id": 0,
+                    "measure_id": 5682887,
+                    "quantity": 271.0,
+                    "diary_group": 3,  # Dinner
+                },
+            ]
+        )
+        result = self._parse(raw)
+
+        assert len(result) == 3
+
+        assert result[0]["serving_id"] == "D9xgQv"
+        assert result[0]["diary_group"] == 1
+        assert result[0]["quantity"] == 170.0
+
+        assert result[1]["serving_id"] == "D9xf3f"
+        assert result[1]["diary_group"] == 2
+        assert result[1]["food_source_id"] == 998804
+
+        assert result[2]["serving_id"] == "DA2kPQ"
+        assert result[2]["diary_group"] == 3
+        assert result[2]["quantity"] == 271.0
+
+    def test_invalid_response_format(self):
+        """Non-GWT response returns empty list."""
+        assert self._parse("garbage") == []
+        assert self._parse("//EX[error]") == []
+        assert self._parse("") == []
+
+    def test_no_serving_in_string_table(self):
+        """Response without Serving class returns empty list."""
+        raw = '//OK[0,0,["java.util.ArrayList/4159755760"],0,7]'
+        assert self._parse(raw) == []
+
+    def test_snacks_diary_group(self):
+        """Diary group 4 (Snacks) correctly decoded."""
+        raw = _build_day_info_response(
+            [
+                {
+                    "serving_id": "DxSnack",
+                    "food_source_id": 123456,
+                    "food_category_id": 789,
+                    "measure_id": 111222,
+                    "quantity": 50.0,
+                    "diary_group": 4,  # Snacks
+                },
+            ]
+        )
+        result = self._parse(raw)
+        assert len(result) == 1
+        assert result[0]["diary_group"] == 4
+        assert result[0]["serving_id"] == "DxSnack"
+
+
+class TestGetDayInfo:
+    """Integration-level tests for get_day_info (mocked GWT call)."""
+
+    def _make_client(self):
+        c = CronometerClient(username="u@test.com", password="pw")
+        c._authenticated = True
+        c.nonce = "test-nonce"
+        c.user_id = "2107848"
+        c.gwt_header = "DEADBEEF" * 4
+        return c
+
+    def test_get_day_info_sends_correct_body(self):
+        c = self._make_client()
+        response = _build_day_info_response(
+            [
+                {
+                    "serving_id": "Dtest1",
+                    "food_source_id": 100,
+                    "food_category_id": 200,
+                    "measure_id": 300,
+                    "quantity": 50.0,
+                    "diary_group": 1,
+                },
+            ]
+        )
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text=response,
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.get_day_info(date(2026, 3, 8))
+
+        assert len(result) == 1
+        assert result[0]["serving_id"] == "Dtest1"
+
+        # Verify the GWT body contains getDayInfo and correct date params
+        call_body = c.session.post.call_args[1].get("data", "")
+        assert "getDayInfo" in call_body
+        assert "|8|3|2026|" in call_body
+        assert "2107848" in call_body
+
+    def test_get_day_info_empty_day(self):
+        c = self._make_client()
+        # Empty day: no Serving in string table
+        response = '//OK[0,0,0,0,0,3,2026,3,8,-2,0,1,["com.cronometer.shared.entries.models.DayInfo/416556043","com.cronometer.shared.entries.models.Day/782579793","java.util.ArrayList/4159755760"],0,7]'
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text=response,
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.get_day_info(date(2026, 3, 8))
+        assert result == []
+
+    def test_get_day_info_multiple_entries(self):
+        c = self._make_client()
+        response = _build_day_info_response(
+            [
+                {
+                    "serving_id": "Dx001",
+                    "food_source_id": 1001,
+                    "food_category_id": 2001,
+                    "measure_id": 3001,
+                    "quantity": 100.0,
+                    "diary_group": 1,
+                },
+                {
+                    "serving_id": "Dx002",
+                    "food_source_id": 1002,
+                    "food_category_id": 2002,
+                    "measure_id": 3002,
+                    "quantity": 200.0,
+                    "diary_group": 2,
+                },
+            ]
+        )
+        c.session.post = MagicMock(
+            return_value=MagicMock(
+                text=response,
+                raise_for_status=lambda: None,
+            )
+        )
+        result = c.get_day_info(date(2026, 3, 8))
+        assert len(result) == 2
+        assert result[0]["serving_id"] == "Dx001"
+        assert result[1]["serving_id"] == "Dx002"
