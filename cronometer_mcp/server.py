@@ -3,7 +3,8 @@
 import json
 import logging
 import os
-from datetime import date, timedelta
+import uuid
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -585,6 +586,556 @@ def get_diary_entries(
 
 
 @mcp.tool()
+def replace_food_entries(
+    replacements: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    dry_run: bool = True,
+    max_operations: int = 50,
+    idempotency_key: str | None = None,
+) -> str:
+    """Replace diary entries by deleting old ones and adding new ones.
+
+    Matches existing diary entries by food_source_id and replaces them
+    with the specified new food. Operates in dry-run mode by default —
+    call with dry_run=false to execute.
+
+    Each replacement in the JSON array specifies which entries to match
+    (by food_source_id) and what to replace them with. The new entry
+    inherits the original's diary_group (meal slot) and date.
+
+    All executed operations are saved to an audit journal for rollback.
+    Use list_replacement_history to view past operations and
+    rollback_replacement to undo them.
+
+    Args:
+        replacements: JSON array of replacement specs. Each element:
+            {
+                "match_food_source_id": 12345,
+                "new_food_id": 67890,
+                "new_food_source_id": 67890,
+                "new_measure_id": 0,
+                "new_quantity": 200,
+                "new_weight_grams": 200
+            }
+            - match_food_source_id: food_source_id to match in existing entries.
+            - new_food_id: food ID for the replacement entry.
+            - new_food_source_id: food source ID for the replacement entry.
+            - new_measure_id: measure ID (0 = universal gram-based measure).
+            - new_quantity: quantity for the replacement entry.
+            - new_weight_grams: weight in grams for the replacement entry.
+        start_date: Start date as YYYY-MM-DD (defaults to today).
+        end_date: End date as YYYY-MM-DD (defaults to start_date).
+        dry_run: If true (default), only show the plan without executing.
+                 Set to false to actually delete and re-add entries.
+        max_operations: Maximum number of delete+add pairs allowed (default 50).
+                        Aborts if the plan exceeds this limit.
+        idempotency_key: Optional unique key to prevent duplicate executions.
+                         If a journal with this key already exists, the previous
+                         result is returned instead of re-executing.
+    """
+    try:
+        # Idempotency check: if key was already used, return previous result
+        if idempotency_key and not dry_run:
+            existing = _find_journal_by_idempotency_key(idempotency_key)
+            if existing:
+                return json.dumps(
+                    {
+                        "status": "already_executed",
+                        "message": (
+                            f"Operation with idempotency_key='{idempotency_key}' "
+                            f"was already executed."
+                        ),
+                        "journal_id": existing["journal_id"],
+                        "previous_result": {
+                            "operations_completed": existing.get(
+                                "operations_completed", 0
+                            ),
+                            "operations_failed": existing.get("operations_failed", 0),
+                            "timestamp": existing.get("timestamp"),
+                        },
+                    },
+                    indent=2,
+                )
+
+        # Parse replacements JSON
+        try:
+            specs = json.loads(replacements)
+        except json.JSONDecodeError as exc:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Invalid replacements JSON: {exc}",
+                }
+            )
+
+        if not isinstance(specs, list) or not specs:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "replacements must be a non-empty JSON array.",
+                }
+            )
+
+        # Validate each spec
+        required_keys = {
+            "match_food_source_id",
+            "new_food_id",
+            "new_food_source_id",
+            "new_quantity",
+            "new_weight_grams",
+        }
+        for i, spec in enumerate(specs):
+            missing = required_keys - set(spec.keys())
+            if missing:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": (
+                            f"Replacement #{i} missing required keys: "
+                            f"{', '.join(sorted(missing))}"
+                        ),
+                    }
+                )
+
+        # Build lookup: match_food_source_id → replacement spec
+        match_map: dict[int, dict] = {}
+        for spec in specs:
+            match_map[int(spec["match_food_source_id"])] = spec
+
+        client = _get_client()
+        start = _parse_date(start_date) or date.today()
+        end = _parse_date(end_date) or start
+
+        if end < start:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "end_date must be >= start_date",
+                }
+            )
+
+        # Collect matching entries across the date range
+        plan: list[dict] = []
+        current = start
+        while current <= end:
+            servings = client.get_day_info(current)
+            for s in servings:
+                if s["food_source_id"] in match_map:
+                    spec = match_map[s["food_source_id"]]
+                    plan.append(
+                        {
+                            "date": current.isoformat(),
+                            "old_serving_id": s["serving_id"],
+                            "old_food_source_id": s["food_source_id"],
+                            "old_quantity": s["quantity"],
+                            "old_diary_group": _DIARY_GROUP_NAMES.get(
+                                s["diary_group"], f"Group {s['diary_group']}"
+                            ),
+                            "old_diary_group_int": s["diary_group"],
+                            "new_food_id": int(spec["new_food_id"]),
+                            "new_food_source_id": int(spec["new_food_source_id"]),
+                            "new_measure_id": int(spec.get("new_measure_id", 0)),
+                            "new_quantity": float(spec["new_quantity"]),
+                            "new_weight_grams": float(spec["new_weight_grams"]),
+                        }
+                    )
+            current += timedelta(days=1)
+
+        if not plan:
+            return json.dumps(
+                {
+                    "status": "success",
+                    "dry_run": dry_run,
+                    "message": "No matching entries found.",
+                    "operations_planned": 0,
+                },
+                indent=2,
+            )
+
+        if len(plan) > max_operations:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": (
+                        f"Plan has {len(plan)} operations, exceeding "
+                        f"max_operations={max_operations}. Increase the limit "
+                        f"or narrow the date range."
+                    ),
+                    "operations_planned": len(plan),
+                }
+            )
+
+        # Build a clean plan summary (without internal fields)
+        plan_summary = [
+            {
+                "date": op["date"],
+                "old_serving_id": op["old_serving_id"],
+                "old_food_source_id": op["old_food_source_id"],
+                "old_quantity": op["old_quantity"],
+                "diary_group": op["old_diary_group"],
+                "new_food_id": op["new_food_id"],
+                "new_food_source_id": op["new_food_source_id"],
+                "new_measure_id": op["new_measure_id"],
+                "new_quantity": op["new_quantity"],
+                "new_weight_grams": op["new_weight_grams"],
+            }
+            for op in plan
+        ]
+
+        if dry_run:
+            return json.dumps(
+                {
+                    "status": "success",
+                    "dry_run": True,
+                    "message": (
+                        f"Would replace {len(plan)} entries. "
+                        f"Set dry_run=false to execute."
+                    ),
+                    "operations_planned": len(plan),
+                    "plan": plan_summary,
+                },
+                indent=2,
+            )
+
+        # Execute: delete old, add new
+        results: list[dict] = []
+        errors: list[dict] = []
+
+        # Before-snapshot for audit journal
+        before_snapshot = [
+            {
+                "date": op["date"],
+                "serving_id": op["old_serving_id"],
+                "food_source_id": op["old_food_source_id"],
+                "quantity": op["old_quantity"],
+                "diary_group": op["old_diary_group"],
+                "diary_group_int": op["old_diary_group_int"],
+            }
+            for op in plan
+        ]
+
+        for op in plan:
+            op_result = {
+                "date": op["date"],
+                "old_serving_id": op["old_serving_id"],
+                "diary_group": op["old_diary_group"],
+            }
+
+            # Step 1: Remove old entry
+            try:
+                client.remove_serving(op["old_serving_id"])
+                op_result["remove_status"] = "success"
+            except Exception as exc:
+                op_result["remove_status"] = "failed"
+                op_result["remove_error"] = str(exc)
+                errors.append(op_result)
+                continue  # Skip add if remove failed
+
+            # Step 2: Add replacement entry
+            try:
+                from datetime import date as date_type
+
+                log_date = date_type.fromisoformat(op["date"])
+                new_entry = client.add_serving(
+                    food_id=op["new_food_id"],
+                    food_source_id=op["new_food_source_id"],
+                    measure_id=op["new_measure_id"],
+                    quantity=op["new_quantity"],
+                    weight_grams=op["new_weight_grams"],
+                    day=log_date,
+                    diary_group=op["old_diary_group_int"],
+                )
+                op_result["add_status"] = "success"
+                op_result["new_serving_id"] = new_entry.get("serving_id", "")
+                op_result["new_food_id"] = op["new_food_id"]
+                op_result["new_food_source_id"] = op["new_food_source_id"]
+                op_result["new_measure_id"] = op["new_measure_id"]
+                op_result["new_quantity"] = op["new_quantity"]
+                op_result["new_weight_grams"] = op["new_weight_grams"]
+            except Exception as exc:
+                op_result["add_status"] = "failed"
+                op_result["add_error"] = str(exc)
+                errors.append(op_result)
+                continue
+
+            results.append(op_result)
+
+        # Save audit journal
+        journal_id = datetime.now().strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
+        journal = {
+            "journal_id": journal_id,
+            "idempotency_key": idempotency_key,
+            "timestamp": datetime.now().isoformat(),
+            "status": "success" if not errors else "partial",
+            "date_range": {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
+            "operations_completed": len(results),
+            "operations_failed": len(errors),
+            "before": before_snapshot,
+            "after": results,
+            "errors": errors if errors else [],
+            "replacements_spec": specs,
+        }
+        try:
+            journal_path = _save_audit_journal(journal)
+        except Exception as exc:
+            logger.warning("Failed to save audit journal: %s", exc)
+            journal_path = None
+
+        return json.dumps(
+            {
+                "status": "success" if not errors else "partial",
+                "dry_run": False,
+                "message": (
+                    f"Replaced {len(results)} of {len(plan)} entries."
+                    + (f" {len(errors)} errors." if errors else "")
+                ),
+                "journal_id": journal_id,
+                "journal_path": str(journal_path) if journal_path else None,
+                "operations_completed": len(results),
+                "operations_failed": len(errors),
+                "results": results,
+                "errors": errors if errors else [],
+            },
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+def list_replacement_history(
+    limit: int = 20,
+) -> str:
+    """List recent food replacement operations from the audit journal.
+
+    Shows metadata for past replace_food_entries executions, including
+    journal_id (needed for rollback), status, timestamp, and operation counts.
+
+    Args:
+        limit: Maximum number of entries to return (default 20).
+    """
+    try:
+        journals = _list_audit_journals(limit=limit)
+        return json.dumps(
+            {
+                "status": "success",
+                "count": len(journals),
+                "journals": journals,
+            },
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
+def rollback_replacement(
+    journal_id: str,
+    dry_run: bool = True,
+) -> str:
+    """Rollback a previous replace_food_entries operation.
+
+    Reads the audit journal for the given journal_id and reverses the
+    operations: removes the new entries that were added and re-adds the
+    original entries that were deleted.
+
+    Operates in dry-run mode by default — call with dry_run=false to execute.
+
+    Args:
+        journal_id: The journal_id from replace_food_entries or
+                    list_replacement_history.
+        dry_run: If true (default), show what would be rolled back without
+                 executing. Set to false to actually perform the rollback.
+    """
+    try:
+        journal = _load_audit_journal(journal_id)
+        if journal is None:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Audit journal '{journal_id}' not found.",
+                }
+            )
+
+        if journal.get("status") == "rolled_back":
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": (
+                        f"Journal '{journal_id}' was already rolled back "
+                        f"at {journal.get('rolled_back_at', 'unknown')}."
+                    ),
+                }
+            )
+
+        # Build rollback plan from the 'after' (successful operations)
+        after_ops = journal.get("after", [])
+        before_ops = journal.get("before", [])
+
+        if not after_ops:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "No successful operations to roll back.",
+                }
+            )
+
+        # Build a lookup from old_serving_id → before entry for re-adding
+        before_map: dict[str, dict] = {}
+        for entry in before_ops:
+            before_map[entry["serving_id"]] = entry
+
+        rollback_plan: list[dict] = []
+        for op in after_ops:
+            if op.get("add_status") != "success":
+                continue
+            old_sid = op.get("old_serving_id", "")
+            before_entry = before_map.get(old_sid, {})
+            rollback_plan.append(
+                {
+                    "date": op["date"],
+                    "new_serving_id_to_remove": op.get("new_serving_id", ""),
+                    "original_serving_id": old_sid,
+                    "original_food_source_id": before_entry.get("food_source_id", 0),
+                    "original_quantity": before_entry.get("quantity", 0),
+                    "original_diary_group": before_entry.get("diary_group", "Unknown"),
+                    "original_diary_group_int": before_entry.get("diary_group_int", 1),
+                }
+            )
+
+        if not rollback_plan:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "No operations eligible for rollback.",
+                }
+            )
+
+        if dry_run:
+            return json.dumps(
+                {
+                    "status": "success",
+                    "dry_run": True,
+                    "journal_id": journal_id,
+                    "message": (
+                        f"Would roll back {len(rollback_plan)} operations. "
+                        f"Set dry_run=false to execute."
+                    ),
+                    "operations_planned": len(rollback_plan),
+                    "plan": [
+                        {
+                            "date": r["date"],
+                            "remove_new_serving_id": r["new_serving_id_to_remove"],
+                            "restore_food_source_id": r["original_food_source_id"],
+                            "restore_quantity": r["original_quantity"],
+                            "restore_diary_group": r["original_diary_group"],
+                        }
+                        for r in rollback_plan
+                    ],
+                },
+                indent=2,
+            )
+
+        # Execute rollback
+        client = _get_client()
+        results: list[dict] = []
+        errors: list[dict] = []
+
+        for r in rollback_plan:
+            rollback_result = {
+                "date": r["date"],
+                "new_serving_id": r["new_serving_id_to_remove"],
+            }
+
+            # Step 1: Remove the replacement entry
+            try:
+                client.remove_serving(r["new_serving_id_to_remove"])
+                rollback_result["remove_status"] = "success"
+            except Exception as exc:
+                rollback_result["remove_status"] = "failed"
+                rollback_result["remove_error"] = str(exc)
+                errors.append(rollback_result)
+                continue
+
+            # Step 2: Re-add the original entry
+            before_entry = before_map.get(r["original_serving_id"], {})
+            original_spec = None
+            for spec in journal.get("replacements_spec", []):
+                if int(spec["match_food_source_id"]) == before_entry.get(
+                    "food_source_id", -1
+                ):
+                    original_spec = spec
+                    break
+
+            if not original_spec:
+                # Can't restore — we don't know the original food_id
+                rollback_result["restore_status"] = "skipped"
+                rollback_result["restore_note"] = (
+                    "Original food details not available in journal. "
+                    "Entry was removed but not restored."
+                )
+                results.append(rollback_result)
+                continue
+
+            try:
+                from datetime import date as date_type
+
+                log_date = date_type.fromisoformat(r["date"])
+                restored = client.add_serving(
+                    food_id=before_entry.get("food_source_id", 0),
+                    food_source_id=before_entry.get("food_source_id", 0),
+                    measure_id=0,
+                    quantity=before_entry.get("quantity", 0),
+                    weight_grams=before_entry.get("quantity", 0),
+                    day=log_date,
+                    diary_group=before_entry.get("diary_group_int", 1),
+                )
+                rollback_result["restore_status"] = "success"
+                rollback_result["restored_serving_id"] = restored.get("serving_id", "")
+            except Exception as exc:
+                rollback_result["restore_status"] = "failed"
+                rollback_result["restore_error"] = str(exc)
+                errors.append(rollback_result)
+                continue
+
+            results.append(rollback_result)
+
+        # Mark journal as rolled back
+        journal["status"] = "rolled_back"
+        journal["rolled_back_at"] = datetime.now().isoformat()
+        journal["rollback_results"] = results
+        journal["rollback_errors"] = errors
+        try:
+            _save_audit_journal(journal)
+        except Exception as exc:
+            logger.warning("Failed to update audit journal: %s", exc)
+
+        return json.dumps(
+            {
+                "status": "success" if not errors else "partial",
+                "dry_run": False,
+                "journal_id": journal_id,
+                "message": (
+                    f"Rolled back {len(results)} of "
+                    f"{len(rollback_plan)} operations."
+                    + (f" {len(errors)} errors." if errors else "")
+                ),
+                "operations_completed": len(results),
+                "operations_failed": len(errors),
+                "results": results,
+                "errors": errors if errors else [],
+            },
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"{type(e).__name__}: {e}"})
+
+
+@mcp.tool()
 def get_macro_targets(
     target_date: str | None = None,
 ) -> str:
@@ -1091,6 +1642,69 @@ def _get_data_dir() -> Path:
     if env_dir:
         return Path(env_dir)
     return Path.home() / ".local" / "share" / "cronometer-mcp"
+
+
+def _get_audit_dir() -> Path:
+    """Get the audit journal directory, creating it if needed."""
+    audit_dir = _get_data_dir() / "audit"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    return audit_dir
+
+
+def _save_audit_journal(journal: dict) -> Path:
+    """Save an audit journal to disk and return the file path."""
+    audit_dir = _get_audit_dir()
+    journal_id = journal["journal_id"]
+    path = audit_dir / f"{journal_id}.json"
+    path.write_text(json.dumps(journal, indent=2))
+    logger.info("Saved audit journal: %s", path)
+    return path
+
+
+def _load_audit_journal(journal_id: str) -> dict | None:
+    """Load an audit journal by ID. Returns None if not found."""
+    path = _get_audit_dir() / f"{journal_id}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+def _find_journal_by_idempotency_key(key: str) -> dict | None:
+    """Find an existing journal with the given idempotency_key."""
+    audit_dir = _get_audit_dir()
+    for path in audit_dir.glob("*.json"):
+        try:
+            journal = json.loads(path.read_text())
+            if journal.get("idempotency_key") == key:
+                return journal
+        except (json.JSONDecodeError, OSError):
+            continue
+    return None
+
+
+def _list_audit_journals(limit: int = 20) -> list[dict]:
+    """List recent audit journals (metadata only), newest first."""
+    audit_dir = _get_audit_dir()
+    journals = []
+    for path in sorted(audit_dir.glob("*.json"), reverse=True):
+        try:
+            journal = json.loads(path.read_text())
+            journals.append(
+                {
+                    "journal_id": journal.get("journal_id", path.stem),
+                    "idempotency_key": journal.get("idempotency_key"),
+                    "timestamp": journal.get("timestamp"),
+                    "status": journal.get("status"),
+                    "operations_completed": journal.get("operations_completed", 0),
+                    "operations_failed": journal.get("operations_failed", 0),
+                    "date_range": journal.get("date_range"),
+                }
+            )
+            if len(journals) >= limit:
+                break
+        except (json.JSONDecodeError, OSError):
+            continue
+    return journals
 
 
 @mcp.tool()
