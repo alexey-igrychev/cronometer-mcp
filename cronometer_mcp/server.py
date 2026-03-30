@@ -416,6 +416,7 @@ def add_food_entry(
     measure_id: int = 0,
     quantity: float = 0,
     diary_group: str = "Breakfast",
+    time: str | None = None,
 ) -> str:
     """Add a food entry to the Cronometer diary.
 
@@ -437,6 +438,9 @@ def add_food_entry(
                   measure_id is 0 (universal gram-based measure).
         diary_group: Meal slot — one of "Breakfast", "Lunch", "Dinner", "Snacks"
                      (case-insensitive, defaults to "Breakfast").
+        time: Time of day as HH:MM in 24-hour format (e.g. "08:30", "15:35").
+              Defaults to a sensible time based on diary_group if not specified
+              (Breakfast=08:00, Lunch=12:00, Dinner=18:00, Snacks=15:00).
     """
     try:
         group_key = diary_group.strip().lower()
@@ -455,6 +459,35 @@ def add_food_entry(
         if measure_id == 0 and quantity == 0:
             quantity = weight_grams
 
+        # Parse optional time parameter
+        entry_hour: int | None = None
+        entry_minute: int | None = None
+        if time is not None:
+            try:
+                parts = time.strip().split(":")
+                entry_hour = int(parts[0])
+                entry_minute = int(parts[1]) if len(parts) > 1 else 0
+                if not (0 <= entry_hour <= 23 and 0 <= entry_minute <= 59):
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "message": (
+                                f"Invalid time '{time}'. Hour must be 0-23, "
+                                "minute must be 0-59."
+                            ),
+                        }
+                    )
+            except (ValueError, IndexError):
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": (
+                            f"Invalid time format '{time}'. "
+                            "Use HH:MM in 24-hour format (e.g. '08:30', '15:35')."
+                        ),
+                    }
+                )
+
         from datetime import date as date_type
 
         log_date = date_type.fromisoformat(date)
@@ -468,6 +501,8 @@ def add_food_entry(
             weight_grams=weight_grams,
             day=log_date,
             diary_group=group_int,
+            hour=entry_hour,
+            minute=entry_minute,
         )
         return json.dumps(
             {

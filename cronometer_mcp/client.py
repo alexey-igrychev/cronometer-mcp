@@ -40,8 +40,8 @@ UNIVERSAL_MEASURE_ID = 124399
 # GWT magic values — used as fallbacks if auto-discovery fails.
 DEFAULT_GWT_CONTENT_TYPE = "text/x-gwt-rpc; charset=UTF-8"
 DEFAULT_GWT_MODULE_BASE = "https://cronometer.com/cronometer/"
-DEFAULT_GWT_PERMUTATION = "CBC38FBB0A1527BD5E68722DD9DABD27"
-DEFAULT_GWT_HEADER = "76FC4464E20E53D16663AC9A96A486B3"
+DEFAULT_GWT_PERMUTATION = "F9A8D0A4A73CE43C69A1EC5994B87F20"
+DEFAULT_GWT_HEADER = "F074E4C7D41D83A4BC27CA0816B7B731"
 
 GWT_AUTHENTICATE = (
     "7|0|5|https://cronometer.com/cronometer/|"
@@ -73,7 +73,7 @@ GWT_FIND_FOODS = (
 )
 
 GWT_UPDATE_DIARY = (
-    "7|0|12|https://cronometer.com/cronometer/|"
+    "7|0|13|https://cronometer.com/cronometer/|"
     "{gwt_header}|"
     "com.cronometer.shared.rpc.CronometerService|"
     "updateDiary|java.lang.String/2004016611|"
@@ -82,9 +82,11 @@ GWT_UPDATE_DIARY = (
     "com.cronometer.shared.entries.changes.AddEntryChange/3949104564|"
     "com.cronometer.shared.entries.models.Serving/2553599101|"
     "com.cronometer.shared.entries.models.Day/782579793|"
+    "com.cronometer.shared.entries.models.Time/1552252503|"
     "1|2|3|4|3|5|6|7|8|{user_id}|9|10|1|1|11|12|"
-    "{day}|{month}|{year}|{quantity}|{diary_group}|0|{measure_id}|0|0|"
-    "{weight_grams}|{food_source_id}|A|{food_id}|0|1|"
+    "{day}|{month}|{year}|{quantity}|{diary_group}|0|{measure_id}|"
+    "13|{hour}|{minute}|0|0|"
+    "{weight_grams}|{food_source_id}|A|{food_id}|0|0|"
 )
 
 GWT_REMOVE_SERVING = (
@@ -1038,6 +1040,8 @@ class CronometerClient:
         weight_grams: float,
         day: date,
         diary_group: int = 1,
+        hour: int | None = None,
+        minute: int | None = None,
     ) -> dict:
         """Add a food serving to the Cronometer diary.
 
@@ -1053,6 +1057,9 @@ class CronometerClient:
             weight_grams: Weight of the serving in grams.
             day: Calendar date to log the entry against.
             diary_group: Meal slot — 1=Breakfast, 2=Lunch, 3=Dinner, 4=Snacks.
+            hour: Hour of day (0-23) for the entry timestamp. Defaults to
+                  a sensible time based on diary_group if not specified.
+            minute: Minute (0-59) for the entry timestamp. Defaults to 0.
 
         Returns:
             Dict with keys:
@@ -1071,6 +1078,13 @@ class CronometerClient:
         # Strip any existing group from the high bits, then apply the requested one.
         measure_base = measure_id & 0xFFFF
         encoded_measure = (diary_group << 16) | measure_base
+
+        # Default time based on diary_group if not specified
+        _DEFAULT_MEAL_HOURS = {1: 8, 2: 12, 3: 18, 4: 15}
+        if hour is None:
+            hour = _DEFAULT_MEAL_HOURS.get(diary_group, 12)
+        if minute is None:
+            minute = 0
 
         # Cronometer sends integer quantities without a decimal point
         quantity_str = (
@@ -1092,6 +1106,8 @@ class CronometerClient:
             .replace("{quantity}", quantity_str)
             .replace("{diary_group}", str(diary_group))
             .replace("{measure_id}", str(encoded_measure))
+            .replace("{hour}", str(hour))
+            .replace("{minute}", str(minute))
             .replace("{weight_grams}", weight_str)
             .replace("{food_source_id}", str(food_source_id))
             .replace("{food_id}", str(food_id))
